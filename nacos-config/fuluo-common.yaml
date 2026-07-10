@@ -1,0 +1,51 @@
+# ================================================================
+# Nacos 配置中心 —— 公共配置（Data ID: fuluo-common.yaml, Group: DEFAULT_GROUP, 格式: YAML）
+#
+# 用途：所有微服务通过 spring.config.import 拉取本文件，集中管理基础设施连接信息。
+#
+# 导入方式（任选其一）：
+#   1) Nacos 控制台 → 配置管理 → 新建配置：
+#        Data ID = fuluo-common.yaml   Group = DEFAULT_GROUP   格式 = YAML
+#        内容 = 本文件内容
+#   2) curl:
+#        curl -X POST "http://127.0.0.1:8848/nacos/v1/cs/configs" \
+#          -d "dataId=fuluo-common.yaml&group=DEFAULT_GROUP&type=yaml" \
+#          --data-urlencode "content@fuluo-common.yaml"
+#
+# 说明：各服务本地 application.yaml 已内置同样的基础设施默认值以便"开箱即跑"。
+# 若要让 Nacos 配置真正生效为唯一来源（生产推荐），请删除各服务本地 application.yaml
+# 中重复的 datasource/redis/rabbitmq/aliyun/elasticsearch 段——因为 spring.config.import
+# 导入的配置优先级低于导入它的本地文件。
+# ================================================================
+spring:
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://127.0.0.1:3306/fuluogame?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
+    username: root
+    password: 123456
+  data:
+    redis:
+      host: 127.0.0.1
+      port: 6379
+  rabbitmq:
+    host: 127.0.0.1
+    port: 5672
+    username: guest
+    password: guest
+    virtual-host: /
+  elasticsearch:
+    uris: http://127.0.0.1:9200
+
+elasticsearch:
+  host: 127.0.0.1
+  port: 9200
+
+aliyun:
+  oss:
+    bucket-name: sky-take-out-wnxby
+    endpoint: oss-cn-beijing.aliyuncs.com
+    access-key-id: ***REMOVED-SECRET***
+    access-key-secret: ***REMOVED-SECRET***
+  green:
+    access-key-id: ***REMOVED-SECRET***
+    access-key-secret: ***REMOVED-SECRET***

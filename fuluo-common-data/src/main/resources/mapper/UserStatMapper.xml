@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.shuimumu.fuluogame.mapper.UserStatMapper">
+
+    <update id="upsertBatch">
+        UPDATE user_stat SET
+            posts = CASE user_id
+                <foreach collection="list" item="item">
+                    WHEN #{item.userId} THEN #{item.posts}
+                </foreach>
+            END,
+            following = CASE user_id
+                <foreach collection="list" item="item">
+                    WHEN #{item.userId} THEN #{item.following}
+                </foreach>
+            END,
+            followers = CASE user_id
+                <foreach collection="list" item="item">
+                    WHEN #{item.userId} THEN #{item.followers}
+                </foreach>
+            END,
+            likes = CASE user_id
+                <foreach collection="list" item="item">
+                    WHEN #{item.userId} THEN #{item.likes}
+                </foreach>
+            END
+        WHERE user_id IN
+        <foreach collection="list" item="item" open="(" separator="," close=")">
+            #{item.userId}
+        </foreach>
+    </update>
+
+</mapper>

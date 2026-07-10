@@ -1,0 +1,65 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: fuluo-gateway
+  config:
+    # Nacos 配置中心：拉取公共配置（Redis 连接等）。optional 避免 Nacos 未启动时启动失败
+    import:
+      - optional:nacos:fuluo-common.yaml?group=DEFAULT_GROUP
+  cloud:
+    nacos:
+      discovery:
+        server-addr: ${NACOS_ADDR:127.0.0.1:8848}
+      config:
+        server-addr: ${NACOS_ADDR:127.0.0.1:8848}
+        file-extension: yaml
+    gateway:
+      discovery:
+        locator:
+          enabled: false
+      routes:
+        # 评论（骨架，注意：必须排在 /post/** 之前，因 /post/comment/** 是其子集）
+        - id: fuluo-comment
+          uri: lb://fuluo-comment
+          predicates:
+            - Path=/post/comment/**,/comment/**
+        # 帖子 + 话题
+        - id: fuluo-post
+          uri: lb://fuluo-post
+          predicates:
+            - Path=/post/**,/topic/**
+        # 用户 + 收件箱
+        - id: fuluo-user
+          uri: lb://fuluo-user
+          predicates:
+            - Path=/user/**,/inbox/**
+        # 后台管理 + 公共读（骨架）
+        - id: fuluo-admin
+          uri: lb://fuluo-admin
+          predicates:
+            - Path=/admin/**,/banners,/announcements,/common/**
+        # AI（骨架）
+        - id: fuluo-ai
+          uri: lb://fuluo-ai
+          predicates:
+            - Path=/ai/**
+        # ES 搜索服务（帖子搜索由 /post/search 迁至 /search）
+        - id: fuluo-search
+          uri: lb://fuluo-search
+          predicates:
+            - Path=/search,/search/**
+      globalcors:
+        cors-configurations:
+          '[/**]':
+            allowed-origin-patterns: "*"
+            allowed-methods: "*"
+            allowed-headers: "*"
+            allow-credentials: true
+
+  # 网关自身连 Redis 做 token 校验（reactive）
+  data:
+    redis:
+      host: ${REDIS_HOST:127.0.0.1}
+      port: ${REDIS_PORT:6379}
