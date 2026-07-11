@@ -130,7 +130,7 @@ public class CanalCdcConsumer {
     private void handleCommentUpdate(JSONObject after, String beforeStatus, String afterStatus) {
         if ("2".equals(beforeStatus) && "0".equals(afterStatus)) {
             Long commentId = after.getLong("id");
-            rabbitTemplate.convertAndSend(RabbitMQConfig.EXCHANGE, RabbitMQConfig.KEY_CACHE,
+            rabbitTemplate.convertAndSend(RabbitMQConfig.EXCHANGE, RabbitMQConfig.KEY_CACHE_COMMENT,
                     Map.of("type", "comment", "commentId", commentId));
             log.info("CDC 评论审核通过扇出 commentId={}", commentId);
         }

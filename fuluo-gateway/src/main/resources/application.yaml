@@ -20,11 +20,11 @@ spring:
         locator:
           enabled: false
       routes:
-        # 评论（骨架，注意：必须排在 /post/** 之前，因 /post/comment/** 是其子集）
+        # 评论（必须排在 /post/** 之前。POST /post/{id}/comment 和 GET /post/{id}/comments 需要放到 comment 服务）
         - id: fuluo-comment
           uri: lb://fuluo-comment
           predicates:
-            - Path=/post/comment/**,/comment/**
+            - Path=/post/comment/**,/post/*/comments,/post/*/comment,/comment/**
         # 帖子 + 话题
         - id: fuluo-post
           uri: lb://fuluo-post

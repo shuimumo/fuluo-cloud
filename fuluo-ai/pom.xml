@@ -10,13 +10,26 @@
     </parent>
     <artifactId>fuluo-ai</artifactId>
     <name>fuluo-ai</name>
-    <description>AI 服务（Phase 1 骨架，Phase 2 从单体迁入完整逻辑）</description>
+    <description>AI 服务：帖子摘要 + 文本润色（纯 Redis 读 + DeepSeek API）</description>
 
     <dependencies>
         <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-web</artifactId>
+            <groupId>com.shuimumu</groupId>
+            <artifactId>fuluo-common</artifactId>
         </dependency>
+
+        <!-- Spring AI：DeepSeek 模型 -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-starter-model-deepseek</artifactId>
+        </dependency>
+
+        <!-- 纯 Redis 读，不需要 MySQL/MyBatis -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis</artifactId>
+        </dependency>
+
         <dependency>
             <groupId>com.alibaba.cloud</groupId>
             <artifactId>spring-cloud-starter-alibaba-nacos-discovery</artifactId>
@@ -24,6 +37,11 @@
         <dependency>
             <groupId>com.alibaba.cloud</groupId>
             <artifactId>spring-cloud-starter-alibaba-nacos-config</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>com.github.xiaoymin</groupId>
+            <artifactId>knife4j-openapi3-jakarta-spring-boot-starter</artifactId>
         </dependency>
         <dependency>
             <groupId>org.projectlombok</groupId>

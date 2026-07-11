@@ -14,6 +14,37 @@ spring:
       config:
         server-addr: ${NACOS_ADDR:127.0.0.1:8848}
         file-extension: yaml
+  data:
+    redis:
+      host: ${REDIS_HOST:127.0.0.1}
+      port: ${REDIS_PORT:6379}
+      lettuce:
+        pool:
+          max-active: 16
+          max-idle: 8
+          min-idle: 4
+          max-wait: 2000ms
+  ai:
+    deepseek:
+      base-url: https://api.deepseek.com
+      api-key: ${DEEPSEEK_API_KEY:***REMOVED-SECRET***}
+      chat:
+        options:
+          model: deepseek-v4-flash
+    ollama:
+      base-url: http://localhost:11434
+      chat:
+        options:
+          model: qwen2.5:7b
+
+knife4j:
+  enable: true
+  setting:
+    language: zh_cn
+springdoc:
+  group-configs:
+    - group: 'ai'
+      packages-to-scan: com.shuimumu.fuluogame.controller
 
 logging:
   level:

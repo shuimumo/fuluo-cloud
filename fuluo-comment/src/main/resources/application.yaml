@@ -14,6 +14,83 @@ spring:
       config:
         server-addr: ${NACOS_ADDR:127.0.0.1:8848}
         file-extension: yaml
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://${DB_HOST:127.0.0.1}:3306/fuluogame?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
+    username: ${DB_USER:root}
+    password: ${DB_PWD:123456}
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 5
+      idle-timeout: 300000
+      connection-timeout: 3000
+      max-lifetime: 600000
+  data:
+    redis:
+      host: ${REDIS_HOST:127.0.0.1}
+      port: ${REDIS_PORT:6379}
+      lettuce:
+        pool:
+          max-active: 16
+          max-idle: 8
+          min-idle: 4
+          max-wait: 2000ms
+  rabbitmq:
+    host: ${RABBIT_HOST:127.0.0.1}
+    port: 5672
+    username: ${RABBIT_USER:guest}
+    password: ${RABBIT_PWD:guest}
+    virtual-host: /
+    listener:
+      simple:
+        prefetch: 10
+        concurrency: 3
+        max-concurrency: 5
+        acknowledge-mode: auto
+        retry:
+          enabled: true
+          initial-interval: 1000ms
+          multiplier: 2
+          max-attempts: 3
+          max-interval: 10s
+    template:
+      retry:
+        enabled: true
+        max-attempts: 3
+        initial-interval: 1000ms
+mybatis-plus:
+  mapper-locations: classpath*:mapper/*.xml
+  type-aliases-package: com.shuimumu.fuluogame.entity
+  configuration:
+    map-underscore-to-camel-case: true
+
+feign:
+  circuitbreaker:
+    enabled: true
+  client:
+    config:
+      default:
+        connectTimeout: 1000
+        readTimeout: 2000
+
+aliyun:
+  oss:
+    bucket-name: sky-take-out-wnxby
+    endpoint: oss-cn-beijing.aliyuncs.com
+    access-key-id: ${OSS_AK:***REMOVED-SECRET***}
+    access-key-secret: ${OSS_SK:***REMOVED-SECRET***}
+  green:
+    access-key-id: ${GREEN_AK:***REMOVED-SECRET***}
+    access-key-secret: ${GREEN_SK:***REMOVED-SECRET***}
+
+knife4j:
+  enable: true
+  setting:
+    language: zh_cn
+springdoc:
+  group-configs:
+    - group: 'comment'
+      packages-to-scan: com.shuimumu.fuluogame.controller
 
 logging:
   level:

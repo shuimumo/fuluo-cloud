@@ -47,6 +47,12 @@ RabbitMQConfig {
     public static final String QUEUE_CDC = "cdc.post.change";
     public static final String KEY_CDC = "cdc.change";
 
+    // 评论缓存重建（由 CanalCdcConsumer 扇出，comment 服务消费）
+    public static final String QUEUE_CACHE_COMMENT = "sync.cache.comment";
+    public static final String KEY_CACHE_COMMENT = "cache.comment";
+    // 评论 CDC（comment 服务独立消费）
+    public static final String QUEUE_CDC_COMMENT = "cdc.comment.change";
+
     // 非活跃用户重新活跃时，从关注者 user:posts 补拉帖子进 inbox
     public static final String QUEUE_BACKFILL = "sync.backfill";
     public static final String KEY_BACKFILL = "backfill";
@@ -119,6 +125,16 @@ RabbitMQConfig {
     public Queue backfillQueue() { return new Queue(QUEUE_BACKFILL, true); }
     @Bean
     public Binding backfillBinding() { return BindingBuilder.bind(backfillQueue()).to(syncExchange()).with(KEY_BACKFILL); }
+
+    @Bean
+    public Queue cacheCommentQueue() { return new Queue(QUEUE_CACHE_COMMENT, true); }
+    @Bean
+    public Binding cacheCommentBinding() { return BindingBuilder.bind(cacheCommentQueue()).to(syncExchange()).with(KEY_CACHE_COMMENT); }
+
+    @Bean
+    public Queue cdcCommentQueue() { return new Queue(QUEUE_CDC_COMMENT, true); }
+    @Bean
+    public Binding cdcCommentBinding() { return BindingBuilder.bind(cdcCommentQueue()).to(cdcExchange()).with(KEY_CDC); }
 
     @Bean
     public MessageConverter jacksonConverter() { return new Jackson2JsonMessageConverter(); }
