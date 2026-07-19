@@ -18,10 +18,12 @@ import org.redisson.api.RateIntervalUnit;
 import org.redisson.api.RateType;
 import org.redisson.api.RedissonClient;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 @Slf4j
 @Component
+@ConditionalOnProperty(prefix = "aliyun.green", name = "access-key-id")
 public class ContentModerationUtil {
 
     public static final String NICKNAME_DETECTION_PRO = "nickname_detection_pro";

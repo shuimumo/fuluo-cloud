@@ -23,12 +23,12 @@
 | `fuluo-gateway` | 应用 | 8080 | 路由 + `AuthGlobalFilter`（token→身份头，Caffeine 缓存，剥离伪造头） |
 | `fuluo-user` | 应用 ★ | 8081 | 用户/登录/关注/统计/收件箱（完整迁移） |
 | `fuluo-post` | 应用 ★ | 8082 | 帖子/话题 + 帖子消费者（完整迁移；ES 已移出，发帖仍发 ES 索引 MQ 消息） |
-| `fuluo-comment` | 应用 ○ | 8083 | 评论（Phase 1 骨架） |
+| `fuluo-comment` | 应用 ★ | 8083 | 评论/回复/点赞 + 评论审核/持久化消费者 |
 | `fuluo-admin` | 应用 ★ | 8084 | 横幅/公告 CRUD + 公开读(`/banners`,`/announcements`) + 文件上传(`/common/upload`) + 内容人工审核 |
-| `fuluo-ai` | 应用 ○ | 8085 | AI（Phase 1 骨架） |
+| `fuluo-ai` | 应用 ★ | 8085 | AI 摘要/润色（纯 Redis 读 + DeepSeek API，零 DB/Feign） |
 | `fuluo-search` | 应用 ★ | 8086 | ES 索引消费(`EsSyncConsumer`)+索引初始化+搜索读(`GET /search`) |
 
-★ = 本阶段完整迁移并跑通链路；○ = 可启动骨架（注册 Nacos + 网关可达 `/{svc}/health`），Phase 2 填充。
+★ = 已完整迁移。
 
 ## 前置依赖（本地）
 
@@ -73,9 +73,28 @@ mvn -pl fuluo-comment spring-boot:run    # 及 admin/ai/search
 - **共享库**：所有服务连同一 MySQL/Redis/RabbitMQ。实体+Mapper 抽到 `fuluo-common-data` 复用；跨域**同步读**走 Feign（`post → user` 的作者填充为示范）。
 - **包名保持** `com.shuimumu.fuluogame.*` 不变，多数文件平移即可复用（同类路径经 classpath 解析）。
 - **RabbitMQ 拓扑**：队列/绑定声明幂等，`fuluo-common` 的 `RabbitMQConfig` 在各服务声明全部队列（无害），但 `@RabbitListener` 消费者只存在于其归属服务。
+- **审核扇出保留 Canal CDC**：帖子/评论的审核通过和删帖先落库，再由 Canal 监听 `fuluogame.post/comment` 的 binlog 变更，分别扇出缓存、ES 和收件箱消息。审核消费者只负责修改状态，避免 DB 成功而 MQ 扇出失败时的双写不一致。
 
-## Phase 2 待办
+### Canal（WSL/Docker）
 
-- 迁移 `comment`（评论及其点赞/收藏/审核/持久化消费者）与 `ai`（摘要/润色）真实逻辑。（`admin`、`search` 已在本阶段落地。）
-- `user→post/comment`、`admin→各域` 反向读全量转 Feign（`PostApi`/`CommentApi`）；`CacheSyncConsumer`/`CanalCdcConsumer` 的评论分支迁入 comment。
-- 网关聚合 Knife4j 文档；引入 Sentinel 限流熔断；退役单体 `backed/`（`src` + 根 `pom.xml`）。
+`cloud/canal-compose.yml` 固化了 1.1.7 SNAPSHOT RabbitMQ 模式所需的配置。这个版本必须显式配置 `rabbitmq.queue` 和 `rabbitmq.routingKey`，否则 RabbitMQ 客户端会在 `queueDeclare(null, ...)` 处抛出 `validateQueueNameLength` NPE；它还把名为 `deliveryMode` 的值当作 exchange type 使用，因此这里必须填 `topic`。
+
+在 WSL 中运行：
+
+```bash
+docker network inspect fuluogame >/dev/null 2>&1 || docker network create fuluogame
+export CANAL_DB_PASSWORD='<the canal MySQL user password>'
+cd /path/to/backed/cloud
+docker rm -f canal-server 2>/dev/null || true
+docker compose -f canal-compose.yml up -d
+docker compose -f canal-compose.yml ps
+docker compose -f canal-compose.yml logs -f canal-server
+```
+
+RabbitMQ、MySQL 和 Canal 必须加入同一个 `fuluogame` Docker network，并使用 `rabbitmq`、`mysql8` 作为容器别名。启动脚本会等待两个依赖就绪；如果 Canal Java 进程退出，容器会退出并由 Docker 自动重试，而不会停留在“容器 Up、CDC 已失效”的假运行状态。
+
+## 后续待办
+
+- `user→post/comment`、`admin→各域` 反向读全量转 Feign（`PostApi`/`CommentApi`）
+- 网关聚合 Knife4j 文档；引入 Sentinel 限流熔断
+- 退役单体 `backed/`（`src` + 根 `pom.xml`）

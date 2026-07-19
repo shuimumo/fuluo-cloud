@@ -3,7 +3,6 @@ package com.shuimumu.fuluogame.service.Impl;
 import cn.hutool.json.JSONUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.shuimumu.fuluogame.config.RabbitMQConfig;
 import com.shuimumu.fuluogame.constants.PostRedisKeys;
 import com.shuimumu.fuluogame.constants.SystemRedisKeys;
 import com.shuimumu.fuluogame.entity.Announcement;
@@ -20,12 +19,10 @@ import com.shuimumu.fuluogame.service.AdminService;
 import com.shuimumu.fuluogame.vo.PageVO;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
-import java.util.Map;
 
 @Slf4j
 @Service
@@ -38,7 +35,6 @@ public class AdminServiceImpl implements AdminService {
     @Autowired private TopicMapper topicMapper;
     @Autowired private StringRedisTemplate stringRedisTemplate;
     @Autowired private com.shuimumu.fuluogame.utils.LocalCache localCache;
-    @Autowired private RabbitTemplate rabbitTemplate;
 
     // ========== Banner ==========
     @Override
@@ -151,22 +147,7 @@ public class AdminServiceImpl implements AdminService {
         post.setModerationDesc(null);
         post.setModerationWords(null);
         postMapper.updateById(post);
-        // 发缓存同步消息，CacheSyncConsumer 处理 ZADD + 缓存 + ES + 收件箱
-        rabbitTemplate.convertAndSend(
-                RabbitMQConfig.EXCHANGE,
-                RabbitMQConfig.KEY_CACHE,
-                Map.of("type", "post", "postId", postId));
-        rabbitTemplate.convertAndSend(
-                RabbitMQConfig.EXCHANGE,
-                RabbitMQConfig.KEY_ES_INDEX,
-                Map.of("postId", postId, "title", post.getTitle(),
-                        "content", post.getContent(), "userId", post.getUserId(),
-                        "createTime", post.getCreateTime().toEpochSecond(java.time.ZoneOffset.UTC)));
-        rabbitTemplate.convertAndSend(
-                RabbitMQConfig.EXCHANGE,
-                RabbitMQConfig.KEY_INBOX,
-                Map.of("postId", postId, "authorId", post.getUserId(),
-                        "createTime", post.getCreateTime().toEpochSecond(java.time.ZoneOffset.UTC)));
+        // 缓存、ES 和收件箱扇出由 status 2->0 的 binlog 事件驱动。
     }
 
     @Override
@@ -191,10 +172,7 @@ public class AdminServiceImpl implements AdminService {
         comment.setModerationDesc(null);
         comment.setModerationWords(null);
         commentMapper.updateById(comment);
-        rabbitTemplate.convertAndSend(
-                RabbitMQConfig.EXCHANGE,
-                RabbitMQConfig.KEY_CACHE,
-                Map.of("type", "comment", "commentId", commentId));
+        // 缓存重建由 status 2->0 的 binlog 事件驱动。
     }
 
     @Override

@@ -248,8 +248,7 @@ public class PostServiceImpl implements PostService {
         if (oldStatus == 0) {
             stringRedisTemplate.opsForHash().increment(UserRedisKeys.stats(post.getUserId()), "posts", -1);
         }
-        rabbitTemplate.convertAndSend(RabbitMQConfig.EXCHANGE, RabbitMQConfig.KEY_ES_DELETE,
-                Map.of("postId", postId));
+        // ES 删除由 status -> 1 的 binlog 事件驱动。
     }
 
     // ========== 点赞 ==========

@@ -1,11 +1,13 @@
 package com.shuimumu.fuluogame.config;
 
 import com.shuimumu.fuluogame.utils.AliOssUtil;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 @Configuration
+@ConditionalOnProperty(prefix = "aliyun.oss", name = "endpoint")
 public class OssConfig {
 
     @Value("${aliyun.oss.endpoint}")

@@ -36,7 +36,7 @@ public class CommentModerationConsumer {
             if (action == ContentModerationUtil.Action.PASS) {
                 comment.setStatus(0); comment.setModerationDesc(null); comment.setModerationWords(null);
                 commentMapper.updateById(comment);
-                // cache 发送已迁移至 CommentCdcConsumer，由 comment status 2→0 的 binlog UPDATE 事件驱动。
+                // 缓存重建由 status 2->0 的 binlog 事件驱动。
             } else {
                 if (action == ContentModerationUtil.Action.MANUAL_REVIEW) {
                     comment.setStatus(2);

@@ -44,9 +44,8 @@ public class PostModerationConsumer {
             if (action == ContentModerationUtil.Action.PASS) {
                 post.setStatus(0); post.setModerationDesc(null); post.setModerationWords(null);
                 postMapper.updateById(post);
-                // cache/es.index/inbox-outbox 三连发已迁移至 CanalCdcConsumer，
-                // 由 status 2→0 的 binlog UPDATE 事件驱动（消除"落库成功但扇出失败"的双写不一致）。
-                // 仅保留无法从 binlog 推导的"新帖一次性"语义：作者 stats+1、话题 posts+1。
+                // cache/es.index/inbox-outbox 由 status 2->0 的 binlog 事件驱动。
+                // 这里只保留 binlog 无法推导的“新帖一次性”语义。
                 if (Boolean.TRUE.equals(msg.getIsNew())) {
                     incrAuthorStats(post.getUserId());
                     if (msg.getTopicIds() != null && !msg.getTopicIds().isEmpty()) {
