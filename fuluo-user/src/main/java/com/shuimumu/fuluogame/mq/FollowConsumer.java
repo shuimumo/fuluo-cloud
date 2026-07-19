@@ -5,11 +5,13 @@ import com.shuimumu.fuluogame.config.RabbitMQConfig;
 import com.shuimumu.fuluogame.constants.PostRedisKeys;
 import com.shuimumu.fuluogame.constants.UserRedisKeys;
 import com.shuimumu.fuluogame.dto.SyncMessage;
+import com.shuimumu.fuluogame.dto.NotificationEvent;
 import com.shuimumu.fuluogame.entity.Follow;
 import com.shuimumu.fuluogame.mapper.FollowMapper;
 import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
@@ -23,6 +25,9 @@ public class FollowConsumer {
 
     @Autowired
     private StringRedisTemplate stringRedisTemplate;
+
+    @Autowired
+    private RabbitTemplate rabbitTemplate;
 
     @RabbitListener(queues = RabbitMQConfig.QUEUE_FOLLOW)
     public void handleFollow(SyncMessage msg) {
@@ -75,6 +80,13 @@ public class FollowConsumer {
                         }
                     }
                 }
+                String eventId = msg.getEventId() != null
+                        ? "follow:" + msg.getEventId()
+                        : "follow:" + msg.getUserId() + ":" + msg.getTargetId();
+                rabbitTemplate.convertAndSend(RabbitMQConfig.NOTIFICATION_EXCHANGE,
+                        RabbitMQConfig.NOTIFICATION_KEY,
+                        NotificationEvent.interaction(eventId, NotificationEvent.FOLLOW,
+                                msg.getUserId(), msg.getTargetId(), null));
             } else if ("unfollow".equals(msg.getType())) {
                 if (existing != null && existing.getStatus() == 1) {
                     existing.setStatus(0);

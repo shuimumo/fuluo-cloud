@@ -4,10 +4,12 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.shuimumu.fuluogame.config.RabbitMQConfig;
 import com.shuimumu.fuluogame.constants.PostRedisKeys;
 import com.shuimumu.fuluogame.dto.SyncMessage;
+import com.shuimumu.fuluogame.dto.NotificationEvent;
 import com.shuimumu.fuluogame.entity.Like;
 import com.shuimumu.fuluogame.mapper.LikeMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -27,12 +29,24 @@ public class LikeConsumer {
     @Autowired
     private StringRedisTemplate stringRedisTemplate;
 
+    @Autowired
+    private RabbitTemplate rabbitTemplate;
+
     @RabbitListener(queues = RabbitMQConfig.QUEUE_LIKE)
     public void handleLike(SyncMessage msg) {
         log.info("收到点赞消息：{}", msg);
         try {
             handleLikeDb(msg);
             handleHotScore(msg);
+            if ("like".equals(msg.getType())) {
+                String eventId = msg.getEventId() != null
+                        ? "post-like:" + msg.getEventId()
+                        : "post-like:" + msg.getUserId() + ":" + msg.getTargetId();
+                rabbitTemplate.convertAndSend(RabbitMQConfig.NOTIFICATION_EXCHANGE,
+                        RabbitMQConfig.NOTIFICATION_KEY,
+                        NotificationEvent.interaction(eventId, NotificationEvent.POST_LIKE,
+                                msg.getUserId(), msg.getTargetId(), msg.getTargetId()));
+            }
             log.info("点赞消费完成 type={} userId={} targetId={}",
                     msg.getType(), msg.getUserId(), msg.getTargetId());
         } catch (Exception e) {

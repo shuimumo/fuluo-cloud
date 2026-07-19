@@ -4,6 +4,7 @@ import cn.hutool.json.JSONArray;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
 import com.shuimumu.fuluogame.config.RabbitMQConfig;
+import com.shuimumu.fuluogame.dto.NotificationEvent;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.core.Message;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
@@ -46,6 +47,11 @@ public class CommentCdcConsumer {
                     Long commentId = after.getLong("id");
                     rabbitTemplate.convertAndSend(RabbitMQConfig.EXCHANGE, RabbitMQConfig.KEY_CACHE_COMMENT,
                             Map.of("type", "comment", "commentId", commentId));
+                    rabbitTemplate.convertAndSend(RabbitMQConfig.NOTIFICATION_EXCHANGE,
+                            RabbitMQConfig.NOTIFICATION_KEY,
+                            NotificationEvent.interaction("comment:" + commentId,
+                                    NotificationEvent.COMMENT, after.getLong("user_id"),
+                                    commentId, after.getLong("post_id")));
                     log.info("Canal comment approved commentId={}", commentId);
                 }
             }

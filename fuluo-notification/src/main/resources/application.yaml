@@ -1,0 +1,71 @@
+server:
+  port: 8087
+
+spring:
+  application:
+    name: fuluo-notification
+  config:
+    import:
+      - optional:nacos:fuluo-common.yaml?group=DEFAULT_GROUP
+  cloud:
+    nacos:
+      discovery:
+        server-addr: ${NACOS_ADDR:127.0.0.1:8848}
+      config:
+        server-addr: ${NACOS_ADDR:127.0.0.1:8848}
+        file-extension: yaml
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://${DB_HOST:127.0.0.1}:3306/fuluogame?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
+    username: ${DB_USER:root}
+    password: ${DB_PWD:123456}
+    hikari:
+      maximum-pool-size: 12
+      minimum-idle: 3
+      connection-timeout: 3000
+  data:
+    redis:
+      host: ${REDIS_HOST:127.0.0.1}
+      port: ${REDIS_PORT:6379}
+  rabbitmq:
+    host: ${RABBIT_HOST:127.0.0.1}
+    port: 5672
+    username: ${RABBIT_USER:guest}
+    password: ${RABBIT_PWD:guest}
+    virtual-host: /
+    listener:
+      simple:
+        prefetch: 20
+        concurrency: 2
+        max-concurrency: 4
+        acknowledge-mode: auto
+        retry:
+          enabled: true
+          initial-interval: 1000ms
+          multiplier: 2
+          max-attempts: 3
+          max-interval: 10s
+    template:
+      retry:
+        enabled: true
+        max-attempts: 3
+        initial-interval: 1000ms
+
+mybatis-plus:
+  mapper-locations: classpath*:mapper/*.xml
+  type-aliases-package: com.shuimumu.fuluogame.entity
+  configuration:
+    map-underscore-to-camel-case: true
+
+knife4j:
+  enable: true
+  setting:
+    language: zh_cn
+springdoc:
+  group-configs:
+    - group: 'notification'
+      packages-to-scan: com.shuimumu.fuluogame.controller
+
+logging:
+  level:
+    com.shuimumu.fuluogame: info

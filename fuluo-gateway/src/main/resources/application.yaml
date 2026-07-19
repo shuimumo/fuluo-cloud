@@ -20,6 +20,11 @@ spring:
         locator:
           enabled: false
       routes:
+        # 通知服务：互动事件通知、未读数和已读状态
+        - id: fuluo-notification
+          uri: lb://fuluo-notification
+          predicates:
+            - Path=/notifications/**
         # 评论（必须排在 /post/** 之前。POST /post/{id}/comment 和 GET /post/{id}/comments 需要放到 comment 服务）
         - id: fuluo-comment
           uri: lb://fuluo-comment

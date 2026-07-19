@@ -29,6 +29,7 @@
         <module>fuluo-admin</module>
         <module>fuluo-ai</module>
         <module>fuluo-search</module>
+        <module>fuluo-notification</module>
     </modules>
 
     <properties>

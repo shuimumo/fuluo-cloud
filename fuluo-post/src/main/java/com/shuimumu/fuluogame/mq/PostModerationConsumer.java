@@ -4,11 +4,13 @@ import com.shuimumu.fuluogame.config.RabbitMQConfig;
 import com.shuimumu.fuluogame.constants.PostRedisKeys;
 import com.shuimumu.fuluogame.constants.UserRedisKeys;
 import com.shuimumu.fuluogame.dto.PostModerationMsg;
+import com.shuimumu.fuluogame.dto.NotificationEvent;
 import com.shuimumu.fuluogame.entity.Post;
 import com.shuimumu.fuluogame.mapper.PostMapper;
 import com.shuimumu.fuluogame.utils.ContentModerationUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
@@ -28,6 +30,9 @@ public class PostModerationConsumer {
     @Autowired
     private StringRedisTemplate stringRedisTemplate;
 
+    @Autowired
+    private RabbitTemplate rabbitTemplate;
+
     @RabbitListener(queues = RabbitMQConfig.QUEUE_MODERATION)
     public void handlePost(PostModerationMsg msg) {
         try {
@@ -38,6 +43,9 @@ public class PostModerationConsumer {
                     contentModerationUtil.moderateComment(post.getTitle() + " " + post.getContent());
 
             ContentModerationUtil.Action action = result.getAction();
+            if (result.getDescription() == null || result.getDescription().isBlank()) {
+                result.setDescription("内容未通过审核");
+            }
             if (action == ContentModerationUtil.Action.RETRY) {
                 throw new RuntimeException("审核接口异常，触发MQ重试");
             }
@@ -68,6 +76,13 @@ public class PostModerationConsumer {
                 post.setModerationDesc(result.getDescription());
                 post.setModerationWords(result.getRiskWords());
                 postMapper.updateById(post);
+                if (action != ContentModerationUtil.Action.MANUAL_REVIEW) {
+                    rabbitTemplate.convertAndSend(RabbitMQConfig.NOTIFICATION_EXCHANGE,
+                            RabbitMQConfig.NOTIFICATION_KEY,
+                            NotificationEvent.system("moderation-post:" + post.getId(),
+                                    post.getUserId(), post.getId(), post.getId(),
+                                    "你的帖子未通过审核：" + result.getDescription()));
+                }
             }
             log.info("帖子审核完成 postId={} action={}", post.getId(), action);
         } catch (Exception e) {

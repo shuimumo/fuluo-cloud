@@ -5,6 +5,8 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.shuimumu.fuluogame.constants.PostRedisKeys;
 import com.shuimumu.fuluogame.constants.SystemRedisKeys;
+import com.shuimumu.fuluogame.config.RabbitMQConfig;
+import com.shuimumu.fuluogame.dto.NotificationEvent;
 import com.shuimumu.fuluogame.entity.Announcement;
 import com.shuimumu.fuluogame.entity.Banner;
 import com.shuimumu.fuluogame.entity.Comment;
@@ -19,6 +21,7 @@ import com.shuimumu.fuluogame.service.AdminService;
 import com.shuimumu.fuluogame.vo.PageVO;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
@@ -35,6 +38,7 @@ public class AdminServiceImpl implements AdminService {
     @Autowired private TopicMapper topicMapper;
     @Autowired private StringRedisTemplate stringRedisTemplate;
     @Autowired private com.shuimumu.fuluogame.utils.LocalCache localCache;
+    @Autowired private RabbitTemplate rabbitTemplate;
 
     // ========== Banner ==========
     @Override
@@ -157,6 +161,10 @@ public class AdminServiceImpl implements AdminService {
         post.setStatus(3);
         post.setModerationDesc(reason);
         postMapper.updateById(post);
+        rabbitTemplate.convertAndSend(RabbitMQConfig.NOTIFICATION_EXCHANGE,
+                RabbitMQConfig.NOTIFICATION_KEY,
+                NotificationEvent.system("admin-post-reject:" + postId + ":" + reasonHash(reason),
+                        post.getUserId(), postId, postId, "你的帖子未通过审核：" + reason));
         // 清除公开缓存 + 公开 ZSET（用户自己列表保留）
         stringRedisTemplate.delete(SystemRedisKeys.cachePostContent(postId));
         stringRedisTemplate.opsForZSet().remove(PostRedisKeys.latestZset(), postId.toString());
@@ -182,6 +190,10 @@ public class AdminServiceImpl implements AdminService {
         comment.setStatus(3);
         comment.setModerationDesc(reason);
         commentMapper.updateById(comment);
+        rabbitTemplate.convertAndSend(RabbitMQConfig.NOTIFICATION_EXCHANGE,
+                RabbitMQConfig.NOTIFICATION_KEY,
+                NotificationEvent.system("admin-comment-reject:" + commentId + ":" + reasonHash(reason),
+                        comment.getUserId(), commentId, comment.getPostId(), "你的评论未通过审核：" + reason));
         // 清除评论缓存 + ZSET
         stringRedisTemplate.delete(SystemRedisKeys.cacheCommentContent(commentId));
         if (comment.getRootId() == null || comment.getRootId() == 0) {
@@ -190,6 +202,10 @@ public class AdminServiceImpl implements AdminService {
             stringRedisTemplate.opsForZSet().remove(PostRedisKeys.replyZset(comment.getRootId()), commentId.toString());
         }
         stringRedisTemplate.opsForZSet().remove(PostRedisKeys.userCommentZset(comment.getUserId()), commentId.toString());
+    }
+
+    private String reasonHash(String reason) {
+        return Integer.toHexString(reason == null ? 0 : reason.hashCode());
     }
 
 }

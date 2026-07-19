@@ -17,6 +17,9 @@ public class
 RabbitMQConfig {
 
     public static final String EXCHANGE = "fuluo.sync";
+    public static final String NOTIFICATION_EXCHANGE = "fuluo.notification";
+    public static final String NOTIFICATION_QUEUE = "notification.events";
+    public static final String NOTIFICATION_KEY = "notification.event";
     public static final String QUEUE_FOLLOW = "sync.follow";
     public static final String QUEUE_LIKE = "sync.like";
     public static final String KEY_FOLLOW = "follow";
@@ -61,6 +64,9 @@ RabbitMQConfig {
 
     @Bean
     public DirectExchange syncExchange() { return new DirectExchange(EXCHANGE); }
+
+    @Bean
+    public DirectExchange notificationExchange() { return new DirectExchange(NOTIFICATION_EXCHANGE); }
 
     // Canal 直投目标：TopicExchange，routing key 与 instance.properties 的 canal.mq.topic 一致
     @Bean

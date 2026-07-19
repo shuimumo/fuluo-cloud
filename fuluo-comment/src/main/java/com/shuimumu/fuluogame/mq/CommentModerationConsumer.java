@@ -2,11 +2,13 @@ package com.shuimumu.fuluogame.mq;
 
 import com.shuimumu.fuluogame.config.RabbitMQConfig;
 import com.shuimumu.fuluogame.dto.CommentModerationMsg;
+import com.shuimumu.fuluogame.dto.NotificationEvent;
 import com.shuimumu.fuluogame.entity.Comment;
 import com.shuimumu.fuluogame.mapper.CommentMapper;
 import com.shuimumu.fuluogame.utils.ContentModerationUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -20,6 +22,9 @@ public class CommentModerationConsumer {
     @Autowired
     private ContentModerationUtil contentModerationUtil;
 
+    @Autowired
+    private RabbitTemplate rabbitTemplate;
+
     @RabbitListener(queues = RabbitMQConfig.QUEUE_COMMENT_MODERATION)
     public void handleComment(CommentModerationMsg msg) {
         try {
@@ -30,6 +35,9 @@ public class CommentModerationConsumer {
                     contentModerationUtil.moderateComment(comment.getContent());
 
             ContentModerationUtil.Action action = result.getAction();
+            if (result.getDescription() == null || result.getDescription().isBlank()) {
+                result.setDescription("内容未通过审核");
+            }
             if (action == ContentModerationUtil.Action.RETRY) {
                 throw new RuntimeException("审核接口异常，触发MQ重试");
             }
@@ -49,6 +57,13 @@ public class CommentModerationConsumer {
                 comment.setModerationDesc(result.getDescription());
                 comment.setModerationWords(result.getRiskWords());
                 commentMapper.updateById(comment);
+                if (action != ContentModerationUtil.Action.MANUAL_REVIEW) {
+                    rabbitTemplate.convertAndSend(RabbitMQConfig.NOTIFICATION_EXCHANGE,
+                            RabbitMQConfig.NOTIFICATION_KEY,
+                            NotificationEvent.system("moderation-comment:" + comment.getId(),
+                                    comment.getUserId(), comment.getId(), comment.getPostId(),
+                                    "你的评论未通过审核：" + result.getDescription()));
+                }
             }
             log.info("评论审核完成 commentId={} action={}", comment.getId(), action);
         } catch (Exception e) {
