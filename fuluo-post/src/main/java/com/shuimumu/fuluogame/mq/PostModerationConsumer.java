@@ -1,5 +1,7 @@
 package com.shuimumu.fuluogame.mq;
 
+import com.shuimumu.fuluogame.utils.UserStatsRedisHelper;
+
 import com.shuimumu.fuluogame.config.RabbitMQConfig;
 import com.shuimumu.fuluogame.constants.PostRedisKeys;
 import com.shuimumu.fuluogame.constants.UserRedisKeys;
@@ -32,6 +34,9 @@ public class PostModerationConsumer {
 
     @Autowired
     private RabbitTemplate rabbitTemplate;
+
+    @Autowired
+    private UserStatsRedisHelper userStatsRedisHelper;
 
     @RabbitListener(queues = RabbitMQConfig.QUEUE_MODERATION)
     public void handlePost(PostModerationMsg msg) {
@@ -92,6 +97,8 @@ public class PostModerationConsumer {
     }
 
     private void incrAuthorStats(Long userId) {
+        // 审核通过后 +posts，先 ensure 再 HINCRBY
+        userStatsRedisHelper.ensureUserStats(userId);
         String key = UserRedisKeys.stats(userId);
         stringRedisTemplate.opsForHash().increment(key, "posts", 1);
         stringRedisTemplate.expire(key, UserRedisKeys.USER_STATS_TTL, TimeUnit.DAYS);

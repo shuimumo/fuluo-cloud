@@ -1,4 +1,6 @@
 package com.shuimumu.fuluogame.service.Impl;
+
+import com.shuimumu.fuluogame.utils.UserStatsRedisHelper;
 import cn.hutool.core.util.RandomUtil;
 import cn.hutool.json.JSONUtil;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
@@ -29,6 +31,9 @@ import java.util.concurrent.TimeUnit;
 public class LoginServiceImpl extends ServiceImpl<UserMapper, User> implements LoginService {
     @Autowired
     private StringRedisTemplate stringRedisTemplate;
+
+    @Autowired
+    private UserStatsRedisHelper userStatsRedisHelper;
     @Autowired
     private RabbitTemplate rabbitTemplate;
     @Autowired
@@ -60,12 +65,7 @@ public class LoginServiceImpl extends ServiceImpl<UserMapper, User> implements L
         user.setUsername(SystemConstants.USER_NICK_NAME_PREFIX + RandomUtil.randomNumbers(6));
         user.setAvatar(SystemConstants.DEFAULT_AVATAR);
         save(user);
-        // 初始化 Redis 统计
-        String key = UserRedisKeys.stats(user.getId());
-        stringRedisTemplate.opsForHash().put(key, "posts", "0");
-        stringRedisTemplate.opsForHash().put(key, "following", "0");
-        stringRedisTemplate.opsForHash().put(key, "followers", "0");
-        stringRedisTemplate.opsForHash().put(key, "likes", "0");
+        userStatsRedisHelper.initZeroStats(user.getId());
         return user;
     }
 

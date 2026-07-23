@@ -71,4 +71,15 @@ public final class RedisHashCounter {
                 "likes", String.valueOf(Math.max(likes, 0L))
         ));
     }
+
+    /** 用户统计四件套：posts / following / followers / likes */
+    public static Long initUserStats(StringRedisTemplate redis, String key,
+                                     long posts, long following, long followers, long likes) {
+        return initMissingFields(redis, key, Map.of(
+                "posts", String.valueOf(Math.max(posts, 0L)),
+                "following", String.valueOf(Math.max(following, 0L)),
+                "followers", String.valueOf(Math.max(followers, 0L)),
+                "likes", String.valueOf(Math.max(likes, 0L))
+        ));
+    }
 }

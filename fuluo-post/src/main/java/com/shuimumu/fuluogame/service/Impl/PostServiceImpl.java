@@ -18,6 +18,7 @@ import com.shuimumu.fuluogame.service.PostService;
 import com.shuimumu.fuluogame.client.UserProfileFetcher;
 import com.shuimumu.fuluogame.utils.CacheClient;
 import com.shuimumu.fuluogame.utils.PostAssembler;
+import com.shuimumu.fuluogame.utils.UserStatsRedisHelper;
 import com.shuimumu.fuluogame.utils.PostBloomFilter;
 import com.shuimumu.fuluogame.utils.RedisHashCounter;
 import com.shuimumu.fuluogame.utils.RedisIdWorker;
@@ -86,6 +87,9 @@ public class PostServiceImpl implements PostService {
 
     @Autowired
     private PostBloomFilter postBloomFilter;
+
+    @Autowired
+    private UserStatsRedisHelper userStatsRedisHelper;
 
     @Autowired
     private RabbitTemplate rabbitTemplate;
@@ -250,7 +254,10 @@ public class PostServiceImpl implements PostService {
         cacheClient.delete(SystemRedisKeys.cachePostContent(postId));
         // 仅当原状态为公开时扣减作者发帖数
         if (oldStatus == 0) {
+            // 扣减前 ensure，避免 stats 过期后从 0 减成负数错账
+            userStatsRedisHelper.ensureUserStats(post.getUserId());
             stringRedisTemplate.opsForHash().increment(UserRedisKeys.stats(post.getUserId()), "posts", -1);
+            stringRedisTemplate.opsForSet().add(UserRedisKeys.statsDirty(), post.getUserId().toString());
         }
         // ES 删除由 status -> 1 的 binlog 事件驱动。
     }
@@ -261,6 +268,7 @@ public class PostServiceImpl implements PostService {
     public boolean like(Long userId, Long postId, Long authorId) {
         // 在 Lua 执行前确保计数 key 存在，避免 HINCRBY 从 0 开始
         ensurePostCounts(postId);
+        userStatsRedisHelper.ensureUserStats(authorId);
         List<String> keys = List.of(
                 PostRedisKeys.likes(postId),
                 UserRedisKeys.stats(authorId),
@@ -283,6 +291,8 @@ public class PostServiceImpl implements PostService {
     public boolean unlike(Long userId, Long postId, Long authorId) {
         // 在 Lua 执行前确保计数 key 存在，避免 HINCRBY 从 0 开始
         ensurePostCounts(postId);
+        // Lua 会 HINCRBY 作者 likes，先 ensure user:stats
+        userStatsRedisHelper.ensureUserStats(authorId);
         List<String> keys = List.of(
                 PostRedisKeys.likes(postId),
                 UserRedisKeys.stats(authorId),

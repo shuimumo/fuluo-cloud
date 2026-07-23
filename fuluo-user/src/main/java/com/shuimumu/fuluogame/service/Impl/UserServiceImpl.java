@@ -15,6 +15,7 @@ import com.shuimumu.fuluogame.mapper.*;
 import com.shuimumu.fuluogame.service.UserService;
 import com.shuimumu.fuluogame.utils.CacheClient;
 import com.shuimumu.fuluogame.utils.PostAssembler;
+import com.shuimumu.fuluogame.utils.UserStatsRedisHelper;
 import com.shuimumu.fuluogame.utils.LocalCache;
 import com.shuimumu.fuluogame.utils.RedisUtils;
 import com.shuimumu.fuluogame.vo.*;
@@ -64,6 +65,9 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
 
     @Autowired
     private UserStatMapper userStatMapper;
+
+    @Autowired
+    private UserStatsRedisHelper userStatsRedisHelper;
 
     @Autowired
     private RabbitTemplate rabbitTemplate;
@@ -417,6 +421,9 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         if (followerId.equals(followedId)) {
             throw new BusinessException("不能关注自己");
         }
+        // Lua 内会 HINCRBY following/followers，先 ensure 双方 stats
+        userStatsRedisHelper.ensureUserStats(followerId);
+        userStatsRedisHelper.ensureUserStats(followedId);
         List<String> keys = List.of(
                 UserRedisKeys.following(followerId),
                 UserRedisKeys.followers(followedId),
@@ -439,6 +446,10 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
 
     @Override
     public void unfollow(Long followerId, Long followedId) {
+        
+        // Lua 内会 HINCRBY following/followers，先 ensure 双方 stats
+        userStatsRedisHelper.ensureUserStats(followerId);
+        userStatsRedisHelper.ensureUserStats(followedId);
         List<String> keys = List.of(
                 UserRedisKeys.following(followerId),
                 UserRedisKeys.followers(followedId),
@@ -460,23 +471,8 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     }
 
     private long[] getStats(Long userId) {
-        String key = UserRedisKeys.stats(userId);
-        java.util.Map<Object, Object> map = stringRedisTemplate.opsForHash().entries(key);
-        if (!map.isEmpty()) {
-            return new long[]{RedisUtils.toLong(map.get("posts")), RedisUtils.toLong(map.get("following")),
-                    RedisUtils.toLong(map.get("followers")), RedisUtils.toLong(map.get("likes"))};
-        }
-        UserStat stat = userStatMapper.selectById(userId);
-        if (stat == null) return new long[]{0, 0, 0, 0};
-        long[] stats = new long[]{stat.getPosts(), stat.getFollowing(), stat.getFollowers(), stat.getLikes()};
-        stringRedisTemplate.opsForHash().putAll(key, Map.of(
-                "posts", String.valueOf(stats[0]),
-                "following", String.valueOf(stats[1]),
-                "followers", String.valueOf(stats[2]),
-                "likes", String.valueOf(stats[3])
-        ));
-        stringRedisTemplate.expire(key, UserRedisKeys.USER_STATS_TTL, TimeUnit.DAYS);
-        return stats;
+        // 先 ensure（HSETNX 补齐），再读取，避免 putAll 覆盖并发增量 / 空 key 读到不完整字段
+        return userStatsRedisHelper.getStats(userId);
     }
 
     @Override

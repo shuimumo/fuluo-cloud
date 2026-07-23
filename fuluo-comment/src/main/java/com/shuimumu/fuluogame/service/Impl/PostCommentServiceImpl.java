@@ -18,6 +18,7 @@ import com.shuimumu.fuluogame.mapper.CommentMapper;
 import com.shuimumu.fuluogame.mapper.PostMapper;
 import com.shuimumu.fuluogame.service.PostCommentService;
 import com.shuimumu.fuluogame.utils.CacheClient;
+import com.shuimumu.fuluogame.utils.UserStatsRedisHelper;
 import com.shuimumu.fuluogame.utils.RedisHashCounter;
 
 import com.shuimumu.fuluogame.vo.CommentVO;
@@ -80,6 +81,9 @@ public class PostCommentServiceImpl implements PostCommentService {
 
     @Autowired
     private CacheClient cacheClient;
+
+    @Autowired
+    private UserStatsRedisHelper userStatsRedisHelper;
 
     @Autowired
     private StringRedisTemplate stringRedisTemplate;
@@ -350,6 +354,10 @@ public class PostCommentServiceImpl implements PostCommentService {
         Long authorId = info[0], postId = info[1];
         Long statsAuthorId = authorId != null ? authorId : 0L;
         ensureCommentCounts(commentId);
+        // Lua 会 HINCRBY 作者 likes，先 ensure user:stats
+        if (authorId != null) {
+            userStatsRedisHelper.ensureUserStats(authorId);
+        }
         List<String> keys = List.of(
                 PostRedisKeys.commentLikes(commentId),
                 UserRedisKeys.stats(statsAuthorId),
@@ -376,6 +384,10 @@ public class PostCommentServiceImpl implements PostCommentService {
         Long authorId = info[0], postId = info[1];
         Long statsAuthorId = authorId != null ? authorId : 0L;
         ensureCommentCounts(commentId);
+        // Lua 会 HINCRBY 作者 likes，先 ensure user:stats
+        if (authorId != null) {
+            userStatsRedisHelper.ensureUserStats(authorId);
+        }
         List<String> keys = List.of(
                 PostRedisKeys.commentLikes(commentId),
                 UserRedisKeys.stats(statsAuthorId),
