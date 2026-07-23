@@ -19,6 +19,7 @@ import com.shuimumu.fuluogame.client.UserProfileFetcher;
 import com.shuimumu.fuluogame.utils.CacheClient;
 import com.shuimumu.fuluogame.utils.PostAssembler;
 import com.shuimumu.fuluogame.utils.PostBloomFilter;
+import com.shuimumu.fuluogame.utils.RedisHashCounter;
 import com.shuimumu.fuluogame.utils.RedisIdWorker;
 import com.shuimumu.fuluogame.vo.PageVO;
 import com.shuimumu.fuluogame.vo.PostContentVO;
@@ -50,19 +51,22 @@ public class PostServiceImpl implements PostService {
     }
 
     /**
-     * 确保 post:counts:{postId} 所有字段齐全，缺失则从 DB 全量加载。
-     * 任何 HINCRBY 之前调用；Lua 操作在脚本执行前调用以避免空 key 被 Lua 从零创建。
+     * 确保 post:counts:{postId} 的 likes/comments/views 齐全。
+     * 缺失字段从 DB 读取后通过 HSETNX 补齐，避免 putAll 覆盖并发 HINCRBY 增量。
+     * 任何 HINCRBY 之前调用，防止空 key 从 0 开始累加。
      */
     private void ensurePostCounts(Long postId) {
         String key = PostRedisKeys.counts(postId);
         Long hlen = stringRedisTemplate.opsForHash().size(key);
-        if (hlen != null && hlen >= 3) return; // likes, comments, views 都齐全
+        if (hlen != null && hlen >= 3) return; // likes/comments/views 已齐全
         Post post = postMapper.selectById(postId);
         if (post == null) return;
-        stringRedisTemplate.opsForHash().putAll(key,
-                Map.of("likes",    String.valueOf(post.getLikes() != null ? post.getLikes() : 0),
-                       "comments", String.valueOf(post.getComments() != null ? post.getComments() : 0),
-                       "views",    String.valueOf(post.getViews() != null ? post.getViews() : 0)));
+        RedisHashCounter.initPostCounts(
+                stringRedisTemplate,
+                key,
+                post.getLikes() != null ? post.getLikes() : 0,
+                post.getComments() != null ? post.getComments() : 0,
+                post.getViews() != null ? post.getViews() : 0);
     }
 
     @Autowired
@@ -116,7 +120,7 @@ public class PostServiceImpl implements PostService {
             return PageVO.of(List.of(), 0, page, size);
         }
         List<Long> postIds = members.stream().map(Long::parseLong).collect(Collectors.toList());
-        // 批量查单帖缓存
+        // 鎵归噺鏌ュ崟甯栫紦瀛?
         List<String> cacheKeys = postIds.stream()
                 .map(SystemRedisKeys::cachePostContent).collect(Collectors.toList());
         List<String> cachedJsons = stringRedisTemplate.opsForValue().multiGet(cacheKeys);
@@ -133,7 +137,7 @@ public class PostServiceImpl implements PostService {
                 missIds.add(pid);
             }
         }
-        // miss 的加锁防击穿
+        // miss 鐨勫姞閿侀槻鍑荤┛
         for (Long pid : missIds) {
             String dataKey = SystemRedisKeys.cachePostContent(pid);
             PostContentVO vo = cacheClient.queryWithMutex("lock:" + dataKey, dataKey, PostContentVO.class, () -> {
@@ -143,7 +147,7 @@ public class PostServiceImpl implements PostService {
             }, PostRedisKeys.POST_CONTENT_CACHE_TTL, TimeUnit.MINUTES);
             if (vo != null) resultMap.put(pid, vo);
         }
-        // 保持 ZSET 顺序输出
+        // 淇濇寔 ZSET 椤哄簭杈撳嚭
         List<PostContentVO> records = new ArrayList<>();
         for (Long pid : postIds) {
             PostContentVO vo = resultMap.get(pid);
@@ -185,7 +189,7 @@ public class PostServiceImpl implements PostService {
         if (vo == null) return null;
         postAssembler.fillUsers(List.of(vo),
                 userService.batchGetProfiles(Set.of(vo.getUserId())));
-        // 浏览量 — 确保计数 key 存在再累加，避免 TTL 过期后从 0 开始
+        // 娴忚閲?鈥?纭繚璁℃暟 key 瀛樺湪鍐嶇疮鍔狅紝閬垮厤 TTL 杩囨湡鍚庝粠 0 寮€濮?
         ensurePostCounts(id);
         stringRedisTemplate.opsForHash().increment(PostRedisKeys.counts(id), "views", 1);
         stringRedisTemplate.opsForSet().add(PostRedisKeys.dirty(), id.toString());
@@ -206,7 +210,7 @@ public class PostServiceImpl implements PostService {
         Post post = postMapper.selectById(postId);
         if (post == null) throw new RuntimeException("帖子不存在");
         if (!post.getUserId().equals(UserContext.getUser().getId())) {
-            throw new RuntimeException("只能编辑自己的帖子");
+            throw new RuntimeException("无权编辑该帖子");
         }
         if (post.getStatus() == 1) throw new RuntimeException("帖子已删除，无法编辑");
         PostPersistMsg msg = new PostPersistMsg(postId, UserContext.getUser().getId(), false,
@@ -221,12 +225,12 @@ public class PostServiceImpl implements PostService {
         Post post = postMapper.selectById(postId);
         if (post == null) throw new RuntimeException("帖子不存在");
         if (!post.getUserId().equals(UserContext.getUser().getId())) {
-            throw new RuntimeException("只能删除自己的帖子");
+            throw new RuntimeException("无权删除该帖子");
         }
         int oldStatus = post.getStatus();
         post.setStatus(1);
         postMapper.updateById(post);
-        // 移除 ZSET
+        // 从公开/用户 ZSET 中移除
         stringRedisTemplate.opsForZSet().remove(PostRedisKeys.latestZset(), postId.toString());
         stringRedisTemplate.opsForZSet().remove(PostRedisKeys.hotZset(), postId.toString());
         stringRedisTemplate.opsForZSet().remove(PostRedisKeys.userPostsZset(post.getUserId()), postId.toString());
@@ -244,14 +248,14 @@ public class PostServiceImpl implements PostService {
         }
         stringRedisTemplate.delete(PostRedisKeys.postTopicIds(postId));
         cacheClient.delete(SystemRedisKeys.cachePostContent(postId));
-        // 只有审核通过的帖子才在incrAuthorStats中+1过，删除时才对等-1
+        // 仅当原状态为公开时扣减作者发帖数
         if (oldStatus == 0) {
             stringRedisTemplate.opsForHash().increment(UserRedisKeys.stats(post.getUserId()), "posts", -1);
         }
         // ES 删除由 status -> 1 的 binlog 事件驱动。
     }
 
-    // ========== 点赞 ==========
+    // ========== 点赞 / 取消点赞 ==========
 
     @Override
     public boolean like(Long userId, Long postId, Long authorId) {
@@ -277,7 +281,7 @@ public class PostServiceImpl implements PostService {
 
     @Override
     public boolean unlike(Long userId, Long postId, Long authorId) {
-        // 在 Lua 执行前确保计数 key 存在，避免 HINCRBY 从 0 开始产生负值
+        // 在 Lua 执行前确保计数 key 存在，避免 HINCRBY 从 0 开始
         ensurePostCounts(postId);
         List<String> keys = List.of(
                 PostRedisKeys.likes(postId),

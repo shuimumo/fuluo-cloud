@@ -12,6 +12,7 @@ import com.shuimumu.fuluogame.entity.PostTopic;
 import com.shuimumu.fuluogame.mapper.CommentMapper;
 import com.shuimumu.fuluogame.mapper.PostMapper;
 import com.shuimumu.fuluogame.mapper.PostTopicMapper;
+import com.shuimumu.fuluogame.utils.RedisHashCounter;
 import com.shuimumu.fuluogame.utils.CacheClient;
 import com.shuimumu.fuluogame.vo.PostContentVO;
 import lombok.extern.slf4j.Slf4j;
@@ -46,18 +47,22 @@ public class CacheSyncConsumer {
 
 
     /**
-     * 确保 post:counts:{postId} 所有字段齐全，缺失则从 DB 全量加载。
+     * 确保 post:counts:{postId} 的 likes/comments/views 齐全。
+     * 缺失字段从 DB 读取后通过 HSETNX 补齐，避免 putAll 覆盖并发 HINCRBY 增量。
+     * 任何 HINCRBY 之前调用，防止空 key 从 0 开始累加。
      */
     private void ensurePostCounts(Long postId) {
         String key = PostRedisKeys.counts(postId);
         Long hlen = stringRedisTemplate.opsForHash().size(key);
-        if (hlen != null && hlen >= 3) return;
+        if (hlen != null && hlen >= 3) return; // likes/comments/views 已齐全
         Post post = postMapper.selectById(postId);
         if (post == null) return;
-        stringRedisTemplate.opsForHash().putAll(key,
-                Map.of("likes",    String.valueOf(post.getLikes() != null ? post.getLikes() : 0),
-                       "comments", String.valueOf(post.getComments() != null ? post.getComments() : 0),
-                       "views",    String.valueOf(post.getViews() != null ? post.getViews() : 0)));
+        RedisHashCounter.initPostCounts(
+                stringRedisTemplate,
+                key,
+                post.getLikes() != null ? post.getLikes() : 0,
+                post.getComments() != null ? post.getComments() : 0,
+                post.getViews() != null ? post.getViews() : 0);
     }
 
     @SuppressWarnings("unchecked")

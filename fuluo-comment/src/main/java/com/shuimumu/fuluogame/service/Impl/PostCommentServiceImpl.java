@@ -18,6 +18,7 @@ import com.shuimumu.fuluogame.mapper.CommentMapper;
 import com.shuimumu.fuluogame.mapper.PostMapper;
 import com.shuimumu.fuluogame.service.PostCommentService;
 import com.shuimumu.fuluogame.utils.CacheClient;
+import com.shuimumu.fuluogame.utils.RedisHashCounter;
 
 import com.shuimumu.fuluogame.vo.CommentVO;
 import com.shuimumu.fuluogame.vo.PageVO;
@@ -51,15 +52,18 @@ public class PostCommentServiceImpl implements PostCommentService {
     }
 
     /**
-     * 确保 comment:counts:{commentId} 的 likes 字段存在，缺失则从 DB 加载。
+     * 确保 comment:counts:{commentId} 的 likes 字段存在。
+     * 使用 HSETNX 写入，避免并发点赞 HINCRBY 后被陈旧 DB 底数覆盖。
      */
     private void ensureCommentCounts(Long commentId) {
         String key = PostRedisKeys.commentCounts(commentId);
         if (Boolean.TRUE.equals(stringRedisTemplate.opsForHash().hasKey(key, "likes"))) return;
         Comment c = commentMapper.selectById(commentId);
         if (c == null) return;
-        stringRedisTemplate.opsForHash().put(key, "likes",
-                String.valueOf(c.getLikes() != null ? c.getLikes() : 0));
+        RedisHashCounter.initCommentCounts(
+                stringRedisTemplate,
+                key,
+                c.getLikes() != null ? c.getLikes() : 0);
     }
 
     @Autowired
