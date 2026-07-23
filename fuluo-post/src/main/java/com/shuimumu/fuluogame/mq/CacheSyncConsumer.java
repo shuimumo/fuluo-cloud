@@ -46,10 +46,12 @@ public class CacheSyncConsumer {
     private CacheClient cacheClient;
 
 
-    /**
+        /**
      * 确保 post:counts:{postId} 的 likes/comments/views 齐全。
      * 缺失字段从 DB 读取后通过 HSETNX 补齐，避免 putAll 覆盖并发 HINCRBY 增量。
      * 任何 HINCRBY 之前调用，防止空 key 从 0 开始累加。
+     * <p>仅在发生播种（字段补齐）时设置 TTL；字段已齐全的快路径不续期，
+     * 让长期无互动的帖子计数自然过期。真正的计数变更由写路径 refreshTtl。
      */
     private void ensurePostCounts(Long postId) {
         String key = PostRedisKeys.counts(postId);
@@ -63,6 +65,9 @@ public class CacheSyncConsumer {
                 post.getLikes() != null ? post.getLikes() : 0,
                 post.getComments() != null ? post.getComments() : 0,
                 post.getViews() != null ? post.getViews() : 0);
+        // 从 DB 播种后设置初始 TTL
+        RedisHashCounter.refreshTtl(stringRedisTemplate, key,
+                PostRedisKeys.POST_COUNTS_TTL, java.util.concurrent.TimeUnit.DAYS);
     }
 
     @SuppressWarnings("unchecked")
@@ -163,6 +168,9 @@ public class CacheSyncConsumer {
         // 3. 评论计数 + 热力值 + 脏标记（先确保计数 key 完整再累加）
         ensurePostCounts(comment.getPostId());
         stringRedisTemplate.opsForHash().increment(PostRedisKeys.counts(comment.getPostId()), "comments", 1);
+            // 评论数变更：刷新 post:counts TTL
+            RedisHashCounter.refreshTtl(stringRedisTemplate, PostRedisKeys.counts(comment.getPostId()),
+                    PostRedisKeys.POST_COUNTS_TTL, java.util.concurrent.TimeUnit.DAYS);
         String postIdStr = comment.getPostId().toString();
         stringRedisTemplate.opsForZSet().incrementScore(PostRedisKeys.hotZset(), postIdStr, 0.3);
         Set<String> topicIds = stringRedisTemplate.opsForSet().members(PostRedisKeys.postTopicIds(comment.getPostId()));

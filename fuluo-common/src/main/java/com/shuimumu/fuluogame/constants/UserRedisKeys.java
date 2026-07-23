@@ -12,6 +12,7 @@ public class UserRedisKeys {
     public static String activeUsers()          { return "active:users"; }
     public static String feedMerged(Long userId){ return "feed:merged:" + userId; }
 
+    /** 用户统计 Hash TTL：7 天；统计变更时刷新，长期无变更则过期 */
     public static final long USER_STATS_TTL = 7;
     public static final long CACHE_USER_TTL = 5;
     public static final long CACHE_USER_PROFILE_TTL = 5;

@@ -52,9 +52,10 @@ public class PostCommentServiceImpl implements PostCommentService {
         COMMENT_UNLIKE_SCRIPT.setResultType(Long.class);
     }
 
-    /**
+        /**
      * 确保 comment:counts:{commentId} 的 likes 字段存在。
      * 使用 HSETNX 写入，避免并发点赞 HINCRBY 后被陈旧 DB 底数覆盖。
+     * 仅播种时设置 TTL；字段已存在不续期，点赞变更时再刷新。
      */
     private void ensureCommentCounts(Long commentId) {
         String key = PostRedisKeys.commentCounts(commentId);
@@ -65,6 +66,8 @@ public class PostCommentServiceImpl implements PostCommentService {
                 stringRedisTemplate,
                 key,
                 c.getLikes() != null ? c.getLikes() : 0);
+        RedisHashCounter.refreshTtl(stringRedisTemplate, key,
+                PostRedisKeys.COMMENT_COUNTS_TTL, TimeUnit.DAYS);
     }
 
     @Autowired
@@ -374,7 +377,10 @@ public class PostCommentServiceImpl implements PostCommentService {
                     UserRedisKeys.USER_STATS_TTL, TimeUnit.DAYS);
             stringRedisTemplate.opsForSet().add(UserRedisKeys.statsDirty(), authorId.toString());
         }
-        return true;
+                // 评论点赞变更：刷新 comment:counts TTL
+        RedisHashCounter.refreshTtl(stringRedisTemplate, PostRedisKeys.commentCounts(commentId),
+                PostRedisKeys.COMMENT_COUNTS_TTL, TimeUnit.DAYS);
+return true;
     }
 
     @Override
@@ -404,7 +410,10 @@ public class PostCommentServiceImpl implements PostCommentService {
                     UserRedisKeys.USER_STATS_TTL, TimeUnit.DAYS);
             stringRedisTemplate.opsForSet().add(UserRedisKeys.statsDirty(), authorId.toString());
         }
-        return true;
+                // 评论取消点赞：刷新 comment:counts TTL
+        RedisHashCounter.refreshTtl(stringRedisTemplate, PostRedisKeys.commentCounts(commentId),
+                PostRedisKeys.COMMENT_COUNTS_TTL, TimeUnit.DAYS);
+return true;
     }
 
     private Long[] getCommentInfo(Long commentId) {

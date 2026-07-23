@@ -7,6 +7,7 @@ import org.springframework.data.redis.core.script.DefaultRedisScript;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 /**
  * 计数 Hash 的安全初始化：只补缺失 field，绝不覆盖已有值。
@@ -81,5 +82,16 @@ public final class RedisHashCounter {
                 "followers", String.valueOf(Math.max(followers, 0L)),
                 "likes", String.valueOf(Math.max(likes, 0L))
         ));
+    }
+
+    /**
+     * 计数变更后刷新 TTL（滑动过期：有写入就续命，长期无写入则过期释放内存）。
+     * 注意：只应在计数真正变化或从 DB 播种后调用；纯读取不要续期。
+     */
+    public static void refreshTtl(StringRedisTemplate redis, String key, long ttl, TimeUnit unit) {
+        if (redis == null || key == null || key.isEmpty() || ttl <= 0 || unit == null) {
+            return;
+        }
+        redis.expire(key, ttl, unit);
     }
 }

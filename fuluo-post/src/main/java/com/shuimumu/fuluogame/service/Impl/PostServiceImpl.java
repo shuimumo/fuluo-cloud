@@ -51,10 +51,12 @@ public class PostServiceImpl implements PostService {
         UNLIKE_SCRIPT.setResultType(Long.class);
     }
 
-    /**
+        /**
      * 确保 post:counts:{postId} 的 likes/comments/views 齐全。
      * 缺失字段从 DB 读取后通过 HSETNX 补齐，避免 putAll 覆盖并发 HINCRBY 增量。
      * 任何 HINCRBY 之前调用，防止空 key 从 0 开始累加。
+     * <p>仅在发生播种（字段补齐）时设置 TTL；字段已齐全的快路径不续期，
+     * 让长期无互动的帖子计数自然过期。真正的计数变更由写路径 refreshTtl。
      */
     private void ensurePostCounts(Long postId) {
         String key = PostRedisKeys.counts(postId);
@@ -68,6 +70,9 @@ public class PostServiceImpl implements PostService {
                 post.getLikes() != null ? post.getLikes() : 0,
                 post.getComments() != null ? post.getComments() : 0,
                 post.getViews() != null ? post.getViews() : 0);
+        // 从 DB 播种后设置初始 TTL
+        RedisHashCounter.refreshTtl(stringRedisTemplate, key,
+                PostRedisKeys.POST_COUNTS_TTL, java.util.concurrent.TimeUnit.DAYS);
     }
 
     @Autowired
@@ -196,11 +201,17 @@ public class PostServiceImpl implements PostService {
         // 娴忚閲?鈥?纭繚璁℃暟 key 瀛樺湪鍐嶇疮鍔狅紝閬垮厤 TTL 杩囨湡鍚庝粠 0 寮€濮?
         ensurePostCounts(id);
         stringRedisTemplate.opsForHash().increment(PostRedisKeys.counts(id), "views", 1);
+        // 计数变化：刷新 post:counts TTL
+        RedisHashCounter.refreshTtl(stringRedisTemplate, PostRedisKeys.counts(id),
+                PostRedisKeys.POST_COUNTS_TTL, TimeUnit.DAYS);
         stringRedisTemplate.opsForSet().add(PostRedisKeys.dirty(), id.toString());
         Set<String> topicIds = stringRedisTemplate.opsForSet().members(PostRedisKeys.postTopicIds(id));
         if (topicIds != null) {
             for (String tid : topicIds) {
-                stringRedisTemplate.opsForHash().increment(PostRedisKeys.topic(Long.parseLong(tid)), "views", 1);
+                Long topicId = Long.parseLong(tid);
+                stringRedisTemplate.opsForHash().increment(PostRedisKeys.topic(topicId), "views", 1);
+                RedisHashCounter.refreshTtl(stringRedisTemplate, PostRedisKeys.topic(topicId),
+                        PostRedisKeys.TOPIC_STATS_TTL, TimeUnit.DAYS);
                 stringRedisTemplate.opsForSet().add(PostRedisKeys.topicDirty(), tid);
             }
         }
@@ -245,7 +256,10 @@ public class PostServiceImpl implements PostService {
                 stringRedisTemplate.opsForZSet().remove(PostRedisKeys.topicPostsLatestZset(Long.parseLong(tid)), postId.toString());
                 stringRedisTemplate.opsForZSet().remove(PostRedisKeys.topicPostsHotZset(Long.parseLong(tid)), postId.toString());
                 if (oldStatus == 0) {
-                    stringRedisTemplate.opsForHash().increment(PostRedisKeys.topic(Long.parseLong(tid)), "posts", -1);
+                    Long topicId = Long.parseLong(tid);
+                    stringRedisTemplate.opsForHash().increment(PostRedisKeys.topic(topicId), "posts", -1);
+                    RedisHashCounter.refreshTtl(stringRedisTemplate, PostRedisKeys.topic(topicId),
+                            PostRedisKeys.TOPIC_STATS_TTL, TimeUnit.DAYS);
                     stringRedisTemplate.opsForSet().add(PostRedisKeys.topicDirty(), tid);
                 }
             }
@@ -284,6 +298,9 @@ public class PostServiceImpl implements PostService {
                 UserRedisKeys.USER_STATS_TTL, TimeUnit.DAYS);
         stringRedisTemplate.opsForSet().add(UserRedisKeys.statsDirty(), authorId.toString());
         stringRedisTemplate.opsForSet().add(PostRedisKeys.dirty(), postId.toString());
+        // 点赞变更了 likes：刷新 post:counts TTL
+        RedisHashCounter.refreshTtl(stringRedisTemplate, PostRedisKeys.counts(postId),
+                PostRedisKeys.POST_COUNTS_TTL, TimeUnit.DAYS);
         return true;
     }
 
@@ -308,6 +325,9 @@ public class PostServiceImpl implements PostService {
                 UserRedisKeys.USER_STATS_TTL, TimeUnit.DAYS);
         stringRedisTemplate.opsForSet().add(UserRedisKeys.statsDirty(), authorId.toString());
         stringRedisTemplate.opsForSet().add(PostRedisKeys.dirty(), postId.toString());
+        // 点赞变更了 likes：刷新 post:counts TTL
+        RedisHashCounter.refreshTtl(stringRedisTemplate, PostRedisKeys.counts(postId),
+                PostRedisKeys.POST_COUNTS_TTL, TimeUnit.DAYS);
         return true;
     }
 

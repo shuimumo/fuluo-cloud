@@ -1,5 +1,6 @@
 package com.shuimumu.fuluogame.mq;
 
+import com.shuimumu.fuluogame.utils.RedisHashCounter;
 import com.shuimumu.fuluogame.utils.UserStatsRedisHelper;
 
 import com.shuimumu.fuluogame.config.RabbitMQConfig;
@@ -65,6 +66,8 @@ public class PostModerationConsumer {
                         for (String tid : msg.getTopicIds().split(",")) {
                             Long topicId = Long.valueOf(tid.trim());
                             stringRedisTemplate.opsForHash().increment(PostRedisKeys.topic(topicId), "posts", 1);
+                            RedisHashCounter.refreshTtl(stringRedisTemplate, PostRedisKeys.topic(topicId),
+                                    PostRedisKeys.TOPIC_STATS_TTL, TimeUnit.DAYS);
                             stringRedisTemplate.opsForSet().add(PostRedisKeys.topicDirty(), topicId.toString());
                         }
                     }

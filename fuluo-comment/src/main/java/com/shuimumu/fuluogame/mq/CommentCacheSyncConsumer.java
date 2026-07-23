@@ -8,8 +8,8 @@ import com.shuimumu.fuluogame.entity.Comment;
 import com.shuimumu.fuluogame.entity.Post;
 import com.shuimumu.fuluogame.mapper.CommentMapper;
 import com.shuimumu.fuluogame.mapper.PostMapper;
-import com.shuimumu.fuluogame.utils.RedisHashCounter;
 import com.shuimumu.fuluogame.utils.CacheClient;
+import com.shuimumu.fuluogame.utils.RedisHashCounter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -21,7 +21,7 @@ import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 /**
- * 评论缓存重建消费者（由 CanalCdcConsumer 在评论审核 2→0 时扇出到
+ * 评论缓存重建消费者（由评论 CDC 在审核 2→0 时投递到
  * {@link RabbitMQConfig#QUEUE_CACHE_COMMENT}）。
  */
 @Slf4j
@@ -44,6 +44,8 @@ public class CommentCacheSyncConsumer {
      * 确保 post:counts:{postId} 的 likes/comments/views 齐全。
      * 缺失字段从 DB 读取后通过 HSETNX 补齐，避免 putAll 覆盖并发 HINCRBY 增量。
      * 任何 HINCRBY 之前调用，防止空 key 从 0 开始累加。
+     * <p>仅在发生播种（字段补齐）时设置 TTL；字段已齐全的快路径不续期，
+     * 让长期无互动的帖子计数自然过期。真正的计数变更由写路径 refreshTtl。
      */
     private void ensurePostCounts(Long postId) {
         String key = PostRedisKeys.counts(postId);
@@ -57,6 +59,9 @@ public class CommentCacheSyncConsumer {
                 post.getLikes() != null ? post.getLikes() : 0,
                 post.getComments() != null ? post.getComments() : 0,
                 post.getViews() != null ? post.getViews() : 0);
+        // 从 DB 播种后设置初始 TTL
+        RedisHashCounter.refreshTtl(stringRedisTemplate, key,
+                PostRedisKeys.POST_COUNTS_TTL, TimeUnit.DAYS);
     }
 
     @SuppressWarnings("unchecked")
@@ -96,6 +101,9 @@ public class CommentCacheSyncConsumer {
             // 3. 评论计数 + 热力值 + 脏标记
             ensurePostCounts(comment.getPostId());
             stringRedisTemplate.opsForHash().increment(PostRedisKeys.counts(comment.getPostId()), "comments", 1);
+            // 评论数变更：刷新 post:counts TTL
+            RedisHashCounter.refreshTtl(stringRedisTemplate, PostRedisKeys.counts(comment.getPostId()),
+                    PostRedisKeys.POST_COUNTS_TTL, TimeUnit.DAYS);
             String postIdStr = comment.getPostId().toString();
             stringRedisTemplate.opsForZSet().incrementScore(PostRedisKeys.hotZset(), postIdStr, 0.3);
             Set<String> topicIds = stringRedisTemplate.opsForSet().members(PostRedisKeys.postTopicIds(comment.getPostId()));
