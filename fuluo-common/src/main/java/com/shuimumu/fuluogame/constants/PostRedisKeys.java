@@ -3,7 +3,28 @@ package com.shuimumu.fuluogame.constants;
 public class PostRedisKeys {
     public static String counts(Long postId)  { return "post:counts:" + postId; }
     public static String likes(Long postId)   { return "post:likes:" + postId; }
-    public static String dirty()              { return "post:dirty"; }
+
+    /**
+     * dirty 分片数。写入按 id 哈希入片，同步任务每片独立锁，多实例可并行消费不同分片。
+     * <p>变更分片数会导致新旧 key 并存，需兼容消费或迁移，请谨慎修改。
+     */
+    public static final int DIRTY_SHARD_COUNT = 4;
+
+    /** 按帖子 id 选择 dirty 分片 key（写路径使用） */
+    public static String dirty(long postId) {
+        return dirtyShard(dirtyShardIndex(postId));
+    }
+
+    /** 指定分片 dirty key（同步任务遍历使用） */
+    public static String dirtyShard(int shard) {
+        return "post:dirty:" + shard;
+    }
+
+    /** 旧版未分片 key，仅兼容历史残留数据 */
+    public static String dirtyLegacy() {
+        return "post:dirty";
+    }
+
     public static String latestZset()         { return "post:latest"; }
     public static String hotZset()            { return "post:hot"; }
     public static String userPostsZset(Long userId) { return "user:posts:" + userId; }
@@ -39,5 +60,23 @@ public class PostRedisKeys {
     public static String postTopicIds(Long postId)          { return "post:topicIds:" + postId; }
 
     public static String topic(Long topicId)  { return "topic:" + topicId; }
-    public static String topicDirty()         { return "topic:dirty"; }
+
+    /** 按话题 id 选择 topic dirty 分片（写路径） */
+    public static String topicDirty(long topicId) {
+        return topicDirtyShard(dirtyShardIndex(topicId));
+    }
+
+    public static String topicDirtyShard(int shard) {
+        return "topic:dirty:" + shard;
+    }
+
+    /** 旧版未分片 topic dirty，仅兼容 */
+    public static String topicDirtyLegacy() {
+        return "topic:dirty";
+    }
+
+    /** 非负取模分片，避免 id 为负时异常 */
+    public static int dirtyShardIndex(long id) {
+        return (int) Math.floorMod(id, DIRTY_SHARD_COUNT);
+    }
 }

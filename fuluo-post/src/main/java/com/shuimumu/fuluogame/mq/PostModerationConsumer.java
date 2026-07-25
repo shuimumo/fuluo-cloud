@@ -68,7 +68,7 @@ public class PostModerationConsumer {
                             stringRedisTemplate.opsForHash().increment(PostRedisKeys.topic(topicId), "posts", 1);
                             RedisHashCounter.refreshTtl(stringRedisTemplate, PostRedisKeys.topic(topicId),
                                     PostRedisKeys.TOPIC_STATS_TTL, TimeUnit.DAYS);
-                            stringRedisTemplate.opsForSet().add(PostRedisKeys.topicDirty(), topicId.toString());
+                            stringRedisTemplate.opsForSet().add(PostRedisKeys.topicDirty(topicId), topicId.toString());
                         }
                     }
                 }
@@ -105,6 +105,6 @@ public class PostModerationConsumer {
         String key = UserRedisKeys.stats(userId);
         stringRedisTemplate.opsForHash().increment(key, "posts", 1);
         stringRedisTemplate.expire(key, UserRedisKeys.USER_STATS_TTL, TimeUnit.DAYS);
-        stringRedisTemplate.opsForSet().add(UserRedisKeys.statsDirty(), userId.toString());
+        stringRedisTemplate.opsForSet().add(UserRedisKeys.statsDirty(userId), userId.toString());
     }
 }

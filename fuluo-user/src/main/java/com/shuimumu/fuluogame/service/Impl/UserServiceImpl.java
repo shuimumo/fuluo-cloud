@@ -440,8 +440,8 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         String tk = UserRedisKeys.stats(followedId);
         stringRedisTemplate.expire(fk, UserRedisKeys.USER_STATS_TTL, TimeUnit.DAYS);
         stringRedisTemplate.expire(tk, UserRedisKeys.USER_STATS_TTL, TimeUnit.DAYS);
-        stringRedisTemplate.opsForSet().add(UserRedisKeys.statsDirty(),
-                followerId.toString(), followedId.toString());
+        stringRedisTemplate.opsForSet().add(UserRedisKeys.statsDirty(followerId), followerId.toString());
+        stringRedisTemplate.opsForSet().add(UserRedisKeys.statsDirty(followedId), followedId.toString());
     }
 
     @Override
@@ -466,8 +466,8 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         String tk = UserRedisKeys.stats(followedId);
         stringRedisTemplate.expire(fk, UserRedisKeys.USER_STATS_TTL, TimeUnit.DAYS);
         stringRedisTemplate.expire(tk, UserRedisKeys.USER_STATS_TTL, TimeUnit.DAYS);
-        stringRedisTemplate.opsForSet().add(UserRedisKeys.statsDirty(),
-                followerId.toString(), followedId.toString());
+        stringRedisTemplate.opsForSet().add(UserRedisKeys.statsDirty(followerId), followerId.toString());
+        stringRedisTemplate.opsForSet().add(UserRedisKeys.statsDirty(followedId), followedId.toString());
     }
 
     private long[] getStats(Long userId) {

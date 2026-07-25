@@ -198,13 +198,12 @@ public class PostServiceImpl implements PostService {
         if (vo == null) return null;
         postAssembler.fillUsers(List.of(vo),
                 userService.batchGetProfiles(Set.of(vo.getUserId())));
-        // 娴忚閲?鈥?纭繚璁℃暟 key 瀛樺湪鍐嶇疮鍔狅紝閬垮厤 TTL 杩囨湡鍚庝粠 0 寮€濮?
         ensurePostCounts(id);
         stringRedisTemplate.opsForHash().increment(PostRedisKeys.counts(id), "views", 1);
         // 计数变化：刷新 post:counts TTL
         RedisHashCounter.refreshTtl(stringRedisTemplate, PostRedisKeys.counts(id),
                 PostRedisKeys.POST_COUNTS_TTL, TimeUnit.DAYS);
-        stringRedisTemplate.opsForSet().add(PostRedisKeys.dirty(), id.toString());
+        stringRedisTemplate.opsForSet().add(PostRedisKeys.dirty(id), id.toString());
         Set<String> topicIds = stringRedisTemplate.opsForSet().members(PostRedisKeys.postTopicIds(id));
         if (topicIds != null) {
             for (String tid : topicIds) {
@@ -212,7 +211,7 @@ public class PostServiceImpl implements PostService {
                 stringRedisTemplate.opsForHash().increment(PostRedisKeys.topic(topicId), "views", 1);
                 RedisHashCounter.refreshTtl(stringRedisTemplate, PostRedisKeys.topic(topicId),
                         PostRedisKeys.TOPIC_STATS_TTL, TimeUnit.DAYS);
-                stringRedisTemplate.opsForSet().add(PostRedisKeys.topicDirty(), tid);
+                stringRedisTemplate.opsForSet().add(PostRedisKeys.topicDirty(Long.parseLong(tid)), tid);
             }
         }
         postAssembler.fillCounts(List.of(vo));
@@ -260,7 +259,7 @@ public class PostServiceImpl implements PostService {
                     stringRedisTemplate.opsForHash().increment(PostRedisKeys.topic(topicId), "posts", -1);
                     RedisHashCounter.refreshTtl(stringRedisTemplate, PostRedisKeys.topic(topicId),
                             PostRedisKeys.TOPIC_STATS_TTL, TimeUnit.DAYS);
-                    stringRedisTemplate.opsForSet().add(PostRedisKeys.topicDirty(), tid);
+                    stringRedisTemplate.opsForSet().add(PostRedisKeys.topicDirty(Long.parseLong(tid)), tid);
                 }
             }
         }
@@ -271,7 +270,7 @@ public class PostServiceImpl implements PostService {
             // 扣减前 ensure，避免 stats 过期后从 0 减成负数错账
             userStatsRedisHelper.ensureUserStats(post.getUserId());
             stringRedisTemplate.opsForHash().increment(UserRedisKeys.stats(post.getUserId()), "posts", -1);
-            stringRedisTemplate.opsForSet().add(UserRedisKeys.statsDirty(), post.getUserId().toString());
+            stringRedisTemplate.opsForSet().add(UserRedisKeys.statsDirty(post.getUserId()), post.getUserId().toString());
         }
         // ES 删除由 status -> 1 的 binlog 事件驱动。
     }
@@ -296,8 +295,8 @@ public class PostServiceImpl implements PostService {
                 new SyncMessage("like", userId, postId, authorId));
         stringRedisTemplate.expire(UserRedisKeys.stats(authorId),
                 UserRedisKeys.USER_STATS_TTL, TimeUnit.DAYS);
-        stringRedisTemplate.opsForSet().add(UserRedisKeys.statsDirty(), authorId.toString());
-        stringRedisTemplate.opsForSet().add(PostRedisKeys.dirty(), postId.toString());
+        stringRedisTemplate.opsForSet().add(UserRedisKeys.statsDirty(authorId), authorId.toString());
+        stringRedisTemplate.opsForSet().add(PostRedisKeys.dirty(postId), postId.toString());
         // 点赞变更了 likes：刷新 post:counts TTL
         RedisHashCounter.refreshTtl(stringRedisTemplate, PostRedisKeys.counts(postId),
                 PostRedisKeys.POST_COUNTS_TTL, TimeUnit.DAYS);
@@ -323,8 +322,8 @@ public class PostServiceImpl implements PostService {
                 new SyncMessage("unlike", userId, postId, authorId));
         stringRedisTemplate.expire(UserRedisKeys.stats(authorId),
                 UserRedisKeys.USER_STATS_TTL, TimeUnit.DAYS);
-        stringRedisTemplate.opsForSet().add(UserRedisKeys.statsDirty(), authorId.toString());
-        stringRedisTemplate.opsForSet().add(PostRedisKeys.dirty(), postId.toString());
+        stringRedisTemplate.opsForSet().add(UserRedisKeys.statsDirty(authorId), authorId.toString());
+        stringRedisTemplate.opsForSet().add(PostRedisKeys.dirty(postId), postId.toString());
         // 点赞变更了 likes：刷新 post:counts TTL
         RedisHashCounter.refreshTtl(stringRedisTemplate, PostRedisKeys.counts(postId),
                 PostRedisKeys.POST_COUNTS_TTL, TimeUnit.DAYS);

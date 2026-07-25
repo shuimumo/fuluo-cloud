@@ -180,7 +180,7 @@ public class CacheSyncConsumer {
                         PostRedisKeys.topicPostsHotZset(Long.parseLong(tid)), postIdStr, 0.3);
             }
         }
-        stringRedisTemplate.opsForSet().add(PostRedisKeys.dirty(), comment.getPostId().toString());
+        stringRedisTemplate.opsForSet().add(PostRedisKeys.dirty(comment.getPostId()), comment.getPostId().toString());
 
         log.info("评论缓存同步完成 commentId={}", commentId);
     }

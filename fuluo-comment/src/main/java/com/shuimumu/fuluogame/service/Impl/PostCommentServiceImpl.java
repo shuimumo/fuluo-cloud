@@ -375,7 +375,7 @@ public class PostCommentServiceImpl implements PostCommentService {
         if (authorId != null) {
             stringRedisTemplate.expire(UserRedisKeys.stats(authorId),
                     UserRedisKeys.USER_STATS_TTL, TimeUnit.DAYS);
-            stringRedisTemplate.opsForSet().add(UserRedisKeys.statsDirty(), authorId.toString());
+            stringRedisTemplate.opsForSet().add(UserRedisKeys.statsDirty(authorId), authorId.toString());
         }
                 // 评论点赞变更：刷新 comment:counts TTL
         RedisHashCounter.refreshTtl(stringRedisTemplate, PostRedisKeys.commentCounts(commentId),
@@ -408,7 +408,7 @@ return true;
         if (authorId != null) {
             stringRedisTemplate.expire(UserRedisKeys.stats(authorId),
                     UserRedisKeys.USER_STATS_TTL, TimeUnit.DAYS);
-            stringRedisTemplate.opsForSet().add(UserRedisKeys.statsDirty(), authorId.toString());
+            stringRedisTemplate.opsForSet().add(UserRedisKeys.statsDirty(authorId), authorId.toString());
         }
                 // 评论取消点赞：刷新 comment:counts TTL
         RedisHashCounter.refreshTtl(stringRedisTemplate, PostRedisKeys.commentCounts(commentId),

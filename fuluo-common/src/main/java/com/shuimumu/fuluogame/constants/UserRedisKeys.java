@@ -8,7 +8,30 @@ public class UserRedisKeys {
     public static String inbox(Long userId)     { return "user:inbox:" + userId; }
     public static String outbox(Long userId)    { return "user:outbox:" + userId; }
     public static String bigV()                 { return "user:bigv"; }
-    public static String statsDirty()           { return "user:stats:dirty"; }
+
+    /**
+     * 用户统计 dirty 分片数，与帖子 dirty 分片策略一致：写按 id 入片，同步每片独立锁。
+     */
+    public static final int STATS_DIRTY_SHARD_COUNT = 4;
+
+    /** 按用户 id 选择 stats dirty 分片（写路径） */
+    public static String statsDirty(long userId) {
+        return statsDirtyShard(statsDirtyShardIndex(userId));
+    }
+
+    public static String statsDirtyShard(int shard) {
+        return "user:stats:dirty:" + shard;
+    }
+
+    /** 旧版未分片 key，仅兼容历史残留 */
+    public static String statsDirtyLegacy() {
+        return "user:stats:dirty";
+    }
+
+    public static int statsDirtyShardIndex(long userId) {
+        return (int) Math.floorMod(userId, STATS_DIRTY_SHARD_COUNT);
+    }
+
     public static String activeUsers()          { return "active:users"; }
     public static String feedMerged(Long userId){ return "feed:merged:" + userId; }
 
