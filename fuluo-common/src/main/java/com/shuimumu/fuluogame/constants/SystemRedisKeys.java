@@ -3,6 +3,8 @@ package com.shuimumu.fuluogame.constants;
 public class SystemRedisKeys {
     public static String loginCode(String phone)  { return "login:code:" + phone; }
     public static String loginCodeInterval(String phone) { return "login:code:interval:" + phone; }
+    public static String loginFail(String phone) { return "login:fail:" + phone; }
+    public static String loginCodeDailyCount(String phone) { return "login:code:daily:" + phone; }
     public static String loginToken(String token) { return "login:token:" + token; }
     public static String cachePostContent(Long id) { return "cache:postContent:" + id; }
     public static String cacheUser(Long id)      { return "cache:user:" + id; }
@@ -16,5 +18,10 @@ public class SystemRedisKeys {
 
     public static final long LOGIN_CODE_TTL = 2;
     public static final long LOGIN_CODE_INTERVAL_TTL = 60;
+    /** 验证码/密码连续失败上限，超过后锁定 LOGIN_FAIL_LOCK_MINUTES 分钟 */
+    public static final long LOGIN_FAIL_MAX = 5;
+    public static final long LOGIN_FAIL_LOCK_MINUTES = 10;
+    /** 单手机号每日验证码发送上限（防短信轰炸） */
+    public static final long LOGIN_CODE_DAILY_MAX = 20;
     public static final long LOGIN_USER_TTL = 30;
 }
