@@ -14,6 +14,7 @@ import com.shuimumu.fuluogame.client.UserProfileFetcher;
 import com.shuimumu.fuluogame.utils.CacheClient;
 import com.shuimumu.fuluogame.utils.LocalCache;
 import com.shuimumu.fuluogame.utils.PostAssembler;
+import com.shuimumu.fuluogame.utils.PostFeedSupport;
 import com.shuimumu.fuluogame.vo.PageVO;
 import com.shuimumu.fuluogame.vo.PostContentVO;
 import com.shuimumu.fuluogame.vo.UserVO;
@@ -38,6 +39,9 @@ public class TopicServiceImpl implements TopicService {
 
     @Autowired
     private PostAssembler postAssembler;
+
+    @Autowired
+    private PostFeedSupport postFeedSupport;
 
     @Autowired
     private UserProfileFetcher userService;
@@ -73,51 +77,37 @@ public class TopicServiceImpl implements TopicService {
 
     @Override
     public PageVO<PostContentVO> getPosts(Long topicId, String tab, int page, int size) {
-        String zsetKey = "hot".equals(tab)
-                ? PostRedisKeys.topicPostsHotZset(topicId)
-                : PostRedisKeys.topicPostsLatestZset(topicId);
+        if (page < 1) page = 1;
+        if (size < 1) size = 10;
         long start = (long) (page - 1) * size;
         long end = start + size - 1;
-        Set<String> members = stringRedisTemplate.opsForZSet().reverseRange(zsetKey, start, end);
-        if (members == null || members.isEmpty()) {
-            return PageVO.of(List.of(), 0, page, size);
-        }
-        List<Long> postIds = members.stream().map(Long::parseLong).collect(Collectors.toList());
-        List<String> cacheKeys = postIds.stream()
-                .map(SystemRedisKeys::cachePostContent).collect(Collectors.toList());
-        List<String> cachedJsons = stringRedisTemplate.opsForValue().multiGet(cacheKeys);
-        Map<Long, PostContentVO> resultMap = new LinkedHashMap<>();
-        List<Long> missIds = new ArrayList<>();
-        for (int i = 0; i < postIds.size(); i++) {
-            Long pid = postIds.get(i);
-            String json = cachedJsons != null ? cachedJsons.get(i) : null;
-            if (json != null && !json.isEmpty()) {
-                resultMap.put(pid, JSONUtil.toBean(json, PostContentVO.class));
-                stringRedisTemplate.expire(SystemRedisKeys.cachePostContent(pid),
-                        PostRedisKeys.POST_CONTENT_CACHE_TTL, TimeUnit.MINUTES);
-            } else {
-                missIds.add(pid);
+
+        // 话题热门：仅 ZSET
+        if ("hot".equals(tab)) {
+            String zsetKey = PostRedisKeys.topicPostsHotZset(topicId);
+            Set<String> members = stringRedisTemplate.opsForZSet().reverseRange(zsetKey, start, end);
+            if (members == null || members.isEmpty()) {
+                return PageVO.of(List.of(), 0, page, size);
             }
+            List<PostContentVO> records = postFeedSupport.loadAndAssemble(postFeedSupport.membersToIds(members));
+            Long total = stringRedisTemplate.opsForZSet().zCard(zsetKey);
+            return PageVO.of(records, total != null ? total : 0, page, size);
         }
-        for (Long pid : missIds) {
-            String dataKey = SystemRedisKeys.cachePostContent(pid);
-            PostContentVO vo = cacheClient.queryWithMutex("lock:" + dataKey, dataKey, PostContentVO.class, () -> {
-                Post p = postMapper.selectById(pid);
-                if (p == null || p.getStatus() != 0) return null;
-                return postAssembler.toVO(p);
-            }, PostRedisKeys.POST_CONTENT_CACHE_TTL, TimeUnit.MINUTES);
-            if (vo != null) resultMap.put(pid, vo);
+
+        // 话题最新：窗口内 Redis，之外/空窗 MySQL
+        String latestKey = PostRedisKeys.topicPostsLatestZset(topicId);
+        Long zcard = stringRedisTemplate.opsForZSet().zCard(latestKey);
+        long window = zcard != null ? zcard : 0L;
+        List<Long> postIds;
+        if (window > 0 && start < window) {
+            Set<String> members = stringRedisTemplate.opsForZSet().reverseRange(latestKey, start, end);
+            postIds = postFeedSupport.membersToIds(members);
+        } else {
+            postIds = postMapper.selectLatestIdsByTopic(topicId, start, size);
+            if (postIds == null) postIds = List.of();
         }
-        List<PostContentVO> records = new ArrayList<>();
-        for (Long pid : postIds) {
-            PostContentVO vo = resultMap.get(pid);
-            if (vo != null) records.add(vo);
-        }
-        postAssembler.fillUsers(records, userService.batchGetProfiles(
-                records.stream().map(PostContentVO::getUserId).filter(Objects::nonNull).collect(Collectors.toSet())));
-        postAssembler.fillCounts(records);
-        postAssembler.fillStatus(records);
-        Long total = stringRedisTemplate.opsForZSet().zCard(zsetKey);
-        return PageVO.of(records, total != null ? total : 0, page, size);
+        List<PostContentVO> records = postFeedSupport.loadAndAssemble(postIds);
+        long total = postMapper.countPublishedByTopic(topicId);
+        return PageVO.of(records, total, page, size);
     }
 }

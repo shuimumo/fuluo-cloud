@@ -13,6 +13,7 @@ import com.shuimumu.fuluogame.mapper.CommentMapper;
 import com.shuimumu.fuluogame.mapper.PostMapper;
 import com.shuimumu.fuluogame.mapper.PostTopicMapper;
 import com.shuimumu.fuluogame.utils.RedisHashCounter;
+import com.shuimumu.fuluogame.utils.RedisZSetTrim;
 import com.shuimumu.fuluogame.utils.CacheClient;
 import com.shuimumu.fuluogame.vo.PostContentVO;
 import lombok.extern.slf4j.Slf4j;
@@ -96,6 +97,9 @@ public class CacheSyncConsumer {
 
         // 1. ZADD latest
         stringRedisTemplate.opsForZSet().add(PostRedisKeys.latestZset(), postIdStr, createEpoch);
+        // 最新流只保留窗口，超出部分由列表接口降级 MySQL
+        RedisZSetTrim.trimToMax(stringRedisTemplate, PostRedisKeys.latestZset(),
+                PostRedisKeys.LATEST_ZSET_MAX);
 
         // 2. 写单帖缓存
         PostContentVO vo = new PostContentVO();
@@ -128,6 +132,8 @@ public class CacheSyncConsumer {
                 new LambdaQueryWrapper<PostTopic>().eq(PostTopic::getPostId, postId));
         for (PostTopic pt : pts) {
             stringRedisTemplate.opsForZSet().add(PostRedisKeys.topicPostsLatestZset(pt.getTopicId()), postIdStr, createEpoch);
+            RedisZSetTrim.trimToMax(stringRedisTemplate, PostRedisKeys.topicPostsLatestZset(pt.getTopicId()),
+                    PostRedisKeys.TOPIC_LATEST_ZSET_MAX);
             stringRedisTemplate.opsForSet().add(PostRedisKeys.postTopicIds(postId), pt.getTopicId().toString());
         }
 

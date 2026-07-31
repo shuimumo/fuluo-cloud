@@ -55,6 +55,14 @@ public class PostRedisKeys {
     /** 帖子内容缓存 TTL：4320 分钟 = 3 天 */
     public static final long POST_CONTENT_CACHE_TTL = 4320;
 
+    /**
+     * 全局最新流 ZSET 窗口上限。窗口内走 Redis，超出后降级 MySQL。
+     * 写路径 ZADD 后裁剪到该大小。
+     */
+    public static final long LATEST_ZSET_MAX = 10000;
+    /** 话题最新流 ZSET 窗口上限 */
+    public static final long TOPIC_LATEST_ZSET_MAX = 2000;
+
     public static String topicPostsLatestZset(Long topicId) { return "topic:posts:latest:" + topicId; }
     public static String topicPostsHotZset(Long topicId)   { return "topic:posts:hot:" + topicId; }
     public static String postTopicIds(Long postId)          { return "post:topicIds:" + postId; }

@@ -25,4 +25,33 @@
         </foreach>
     </update>
 
+    <select id="countPublished" resultType="long">
+        SELECT COUNT(*) FROM `post` WHERE status = 0
+    </select>
+
+    <select id="selectLatestIds" resultType="long">
+        SELECT id FROM `post`
+        WHERE status = 0
+        ORDER BY create_time DESC, id DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countPublishedByTopic" resultType="long">
+        SELECT COUNT(*)
+        FROM `post` p
+        INNER JOIN `post_topic` pt ON p.id = pt.post_id
+        WHERE pt.topic_id = #{topicId}
+          AND p.status = 0
+    </select>
+
+    <select id="selectLatestIdsByTopic" resultType="long">
+        SELECT p.id
+        FROM `post` p
+        INNER JOIN `post_topic` pt ON p.id = pt.post_id
+        WHERE pt.topic_id = #{topicId}
+          AND p.status = 0
+        ORDER BY p.create_time DESC, p.id DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
 </mapper>

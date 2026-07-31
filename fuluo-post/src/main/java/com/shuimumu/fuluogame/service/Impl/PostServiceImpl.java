@@ -18,6 +18,7 @@ import com.shuimumu.fuluogame.service.PostService;
 import com.shuimumu.fuluogame.client.UserProfileFetcher;
 import com.shuimumu.fuluogame.utils.CacheClient;
 import com.shuimumu.fuluogame.utils.PostAssembler;
+import com.shuimumu.fuluogame.utils.PostFeedSupport;
 import com.shuimumu.fuluogame.utils.UserStatsRedisHelper;
 import com.shuimumu.fuluogame.utils.PostBloomFilter;
 import com.shuimumu.fuluogame.utils.RedisHashCounter;
@@ -82,6 +83,9 @@ public class PostServiceImpl implements PostService {
     private PostAssembler postAssembler;
 
     @Autowired
+    private PostFeedSupport postFeedSupport;
+
+    @Autowired
     private UserProfileFetcher userService;
 
     @Autowired
@@ -121,53 +125,38 @@ public class PostServiceImpl implements PostService {
 
     @Override
     public PageVO<PostContentVO> getPostList(String tab, int page, int size) {
-        String zsetKey = "hot".equals(tab) ? PostRedisKeys.hotZset() : PostRedisKeys.latestZset();
+        if (page < 1) page = 1;
+        if (size < 1) size = 10;
         long start = (long) (page - 1) * size;
         long end = start + size - 1;
-        Set<String> members = stringRedisTemplate.opsForZSet().reverseRange(zsetKey, start, end);
-        if (members == null || members.isEmpty()) {
-            return PageVO.of(List.of(), 0, page, size);
-        }
-        List<Long> postIds = members.stream().map(Long::parseLong).collect(Collectors.toList());
-        // 鎵归噺鏌ュ崟甯栫紦瀛?
-        List<String> cacheKeys = postIds.stream()
-                .map(SystemRedisKeys::cachePostContent).collect(Collectors.toList());
-        List<String> cachedJsons = stringRedisTemplate.opsForValue().multiGet(cacheKeys);
-        Map<Long, PostContentVO> resultMap = new LinkedHashMap<>();
-        List<Long> missIds = new ArrayList<>();
-        for (int i = 0; i < postIds.size(); i++) {
-            Long pid = postIds.get(i);
-            String json = cachedJsons != null ? cachedJsons.get(i) : null;
-            if (json != null && !json.isEmpty()) {
-                resultMap.put(pid, JSONUtil.toBean(json, PostContentVO.class));
-                stringRedisTemplate.expire(SystemRedisKeys.cachePostContent(pid),
-                        PostRedisKeys.POST_CONTENT_CACHE_TTL, TimeUnit.MINUTES);
-            } else {
-                missIds.add(pid);
+
+        // 热门流：仅 Redis ZSET（不降级 DB）
+        if ("hot".equals(tab)) {
+            String zsetKey = PostRedisKeys.hotZset();
+            Set<String> members = stringRedisTemplate.opsForZSet().reverseRange(zsetKey, start, end);
+            if (members == null || members.isEmpty()) {
+                return PageVO.of(List.of(), 0, page, size);
             }
+            List<PostContentVO> records = postFeedSupport.loadAndAssemble(postFeedSupport.membersToIds(members));
+            Long total = stringRedisTemplate.opsForZSet().zCard(zsetKey);
+            return PageVO.of(records, total != null ? total : 0, page, size);
         }
-        // miss 鐨勫姞閿侀槻鍑荤┛
-        for (Long pid : missIds) {
-            String dataKey = SystemRedisKeys.cachePostContent(pid);
-            PostContentVO vo = cacheClient.queryWithMutex("lock:" + dataKey, dataKey, PostContentVO.class, () -> {
-                Post p = postMapper.selectById(pid);
-                if (p == null || p.getStatus() != 0) return null;
-                return postAssembler.toVO(p);
-            }, PostRedisKeys.POST_CONTENT_CACHE_TTL, TimeUnit.MINUTES);
-            if (vo != null) resultMap.put(pid, vo);
+
+        // 最新流：ZSET 窗口内走 Redis，窗口外/空窗口降级 MySQL
+        String latestKey = PostRedisKeys.latestZset();
+        Long zcard = stringRedisTemplate.opsForZSet().zCard(latestKey);
+        long window = zcard != null ? zcard : 0L;
+        List<Long> postIds;
+        if (window > 0 && start < window) {
+            Set<String> members = stringRedisTemplate.opsForZSet().reverseRange(latestKey, start, end);
+            postIds = postFeedSupport.membersToIds(members);
+        } else {
+            postIds = postMapper.selectLatestIds(start, size);
+            if (postIds == null) postIds = List.of();
         }
-        // 淇濇寔 ZSET 椤哄簭杈撳嚭
-        List<PostContentVO> records = new ArrayList<>();
-        for (Long pid : postIds) {
-            PostContentVO vo = resultMap.get(pid);
-            if (vo != null) records.add(vo);
-        }
-        postAssembler.fillUsers(records, userService.batchGetProfiles(
-                records.stream().map(PostContentVO::getUserId).filter(Objects::nonNull).collect(Collectors.toSet())));
-        postAssembler.fillCounts(records);
-        postAssembler.fillStatus(records);
-        Long total = stringRedisTemplate.opsForZSet().zCard(zsetKey);
-        return PageVO.of(records, total != null ? total : 0, page, size);
+        List<PostContentVO> records = postFeedSupport.loadAndAssemble(postIds);
+        long total = postMapper.countPublished();
+        return PageVO.of(records, total, page, size);
     }
 
     @Override
