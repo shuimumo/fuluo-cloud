@@ -82,11 +82,11 @@ aliyun:
   oss:
     bucket-name: sky-take-out-wnxby
     endpoint: oss-cn-beijing.aliyuncs.com
-    access-key-id: ${OSS_AK:***REMOVED-SECRET***}
-    access-key-secret: ${OSS_SK:***REMOVED-SECRET***}
+    access-key-id: ${OSS_AK}
+    access-key-secret: ${OSS_SK}
   green:
-    access-key-id: ${GREEN_AK:***REMOVED-SECRET***}
-    access-key-secret: ${GREEN_SK:***REMOVED-SECRET***}
+    access-key-id: ${GREEN_AK}
+    access-key-secret: ${GREEN_SK}
 
 knife4j:
   enable: true
