@@ -17,7 +17,10 @@ public class PostBloomFilter {
         this.redissonClient = redissonClient;
     }
 
-    public boolean mightContain(Long postId) {
+    /**
+     * 确保布隆过滤器已初始化（add/contains 之前都必须先 tryInit）。
+     */
+    private void initIfNeeded() {
         if (!inited) {
             synchronized (this) {
                 if (!inited) {
@@ -32,10 +35,15 @@ public class PostBloomFilter {
                 }
             }
         }
+    }
+
+    public boolean mightContain(Long postId) {
+        initIfNeeded();
         return redissonClient.<Long>getBloomFilter(BLOOM_KEY).contains(postId);
     }
 
     public void add(Long postId) {
+        initIfNeeded();
         redissonClient.<Long>getBloomFilter(BLOOM_KEY).add(postId);
     }
 }

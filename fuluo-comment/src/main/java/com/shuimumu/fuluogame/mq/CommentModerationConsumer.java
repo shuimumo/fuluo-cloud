@@ -10,11 +10,16 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 @Slf4j
 @Component
 public class CommentModerationConsumer {
+
+    @Value("${fuluo.moderation.enabled:true}")
+    private boolean moderationEnabled;
+
 
     @Autowired
     private CommentMapper commentMapper;
@@ -31,8 +36,14 @@ public class CommentModerationConsumer {
             Comment comment = commentMapper.selectById(msg.getCommentId());
             if (comment == null || comment.getStatus() != 2) return;
 
-            ContentModerationUtil.ModerationResult result =
-                    contentModerationUtil.moderateComment(comment.getContent());
+            ContentModerationUtil.ModerationResult result;
+            if (!moderationEnabled) {
+                // 压测/本地调试：跳过阿里云 Green 审核，直接放行
+                result = new ContentModerationUtil.ModerationResult(
+                        true, ContentModerationUtil.Action.PASS, "none", null, null, null, 0);
+            } else {
+                result = contentModerationUtil.moderateComment(comment.getContent());
+            }
 
             ContentModerationUtil.Action action = result.getAction();
             if (result.getDescription() == null || result.getDescription().isBlank()) {

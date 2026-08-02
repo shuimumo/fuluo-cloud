@@ -46,3 +46,9 @@ aliyun:
   green:
     access-key-id: ***REMOVED-SECRET***
     access-key-secret: ***REMOVED-SECRET***
+
+
+# 审核开关：压测/联调时置 false 可跳过阿里云 Green 审核（帖子/评论直接放行），测完改回 true
+fuluo:
+  moderation:
+    enabled: false

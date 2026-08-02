@@ -1,4 +1,4 @@
-﻿services:
+services:
   mysql8:
     image: mysql:8.0
     container_name: mysql8
@@ -73,50 +73,42 @@
       start_period: 20s
 
   nacos:
-    image: nacos/nacos-server:v3.2.2
+    image: nacos/nacos-server:v2.3.2
     container_name: nacos
     restart: unless-stopped
     environment:
       MODE: standalone
-      # Nacos 3.x 启动脚本强制要求这三个变量存在；本地开发全部关闭鉴权
       NACOS_AUTH_ENABLE: "false"
-      NACOS_AUTH_ADMIN_ENABLE: "false"
-      NACOS_AUTH_CONSOLE_ENABLE: "false"
-      NACOS_AUTH_TOKEN: ${NACOS_AUTH_TOKEN:-ZnVsdW9nYW1lLW5hY29zLXNlY3JldC1rZXktMjAyNi1sb2NhbC1kZXY=}
-      NACOS_AUTH_IDENTITY_KEY: ${NACOS_AUTH_IDENTITY_KEY:-serverIdentity}
-      NACOS_AUTH_IDENTITY_VALUE: ${NACOS_AUTH_IDENTITY_VALUE:-security}
       PREFER_HOST_MODE: hostname
       TZ: Asia/Shanghai
     ports:
       - "${NACOS_PORT:-8848}:8848"
       - "${NACOS_GRPC_PORT:-9848}:9848"
       - "${NACOS_GRPC_PORT_ALT:-9849}:9849"
-      # Nacos 3.x 控制台默认在 8080，映射到宿主机 18080 避免与应用网关 8080 冲突
-      - "${NACOS_CONSOLE_PORT:-18080}:8080"
     volumes:
       - nacos-data:/home/nacos/data
       - nacos-logs:/home/nacos/logs
     networks:
       - fuluogame
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8848/nacos/v3/admin/core/state/readiness >/dev/null"]
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8848/nacos/v1/console/health/readiness >/dev/null"]
       interval: 10s
       timeout: 5s
       retries: 18
       start_period: 45s
 
   nacos-config-init:
-    image: nacos/nacos-server:v3.2.2
+    image: nacos/nacos-server:v2.3.2
     container_name: nacos-config-init
     restart: "no"
     entrypoint: ["/bin/sh", "-c"]
     command:
       - >-
-        until curl -fsS http://nacos:8848/nacos/v3/admin/core/state/readiness;
+        until curl -fsS http://nacos:8848/nacos/v1/console/health/readiness;
         do sleep 2; done;
-        curl -fsS -X POST http://nacos:8848/nacos/v3/admin/cs/config
+        curl -fsS -X POST http://nacos:8848/nacos/v1/cs/configs
         --data-urlencode dataId=fuluo-common.yaml
-        --data-urlencode groupName=DEFAULT_GROUP
+        --data-urlencode group=DEFAULT_GROUP
         --data-urlencode type=yaml
         --data-urlencode content@/config/fuluo-common.yaml
     volumes:
