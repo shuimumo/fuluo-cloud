@@ -5,15 +5,14 @@ spring:
   application:
     name: fuluo-gateway
   config:
-    # Nacos 配置中心：拉取公共配置（Redis 连接等）。optional 避免 Nacos 未启动时启动失败
     import:
-      - optional:nacos:fuluo-common.yaml?group=DEFAULT_GROUP
+      - nacos:fuluo-common.yaml?group=DEFAULT_GROUP
   cloud:
     nacos:
       discovery:
-        server-addr: ${NACOS_ADDR:127.0.0.1:8848}
+        server-addr: 127.0.0.1:8848
       config:
-        server-addr: ${NACOS_ADDR:127.0.0.1:8848}
+        server-addr: 127.0.0.1:8848
         file-extension: yaml
     gateway:
       discovery:
@@ -62,9 +61,3 @@ spring:
             allowed-methods: "*"
             allowed-headers: "*"
             allow-credentials: true
-
-  # 网关自身连 Redis 做 token 校验（reactive）
-  data:
-    redis:
-      host: ${REDIS_HOST:127.0.0.1}
-      port: ${REDIS_PORT:6379}

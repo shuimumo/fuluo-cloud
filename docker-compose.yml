@@ -1,0 +1,237 @@
+﻿services:
+  mysql8:
+    image: mysql:8.0
+    container_name: mysql8
+    restart: unless-stopped
+    command:
+      - --server-id=1
+      - --log-bin=mysql-bin
+      - --binlog-format=ROW
+      - --binlog-row-image=FULL
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-123456}
+      MYSQL_ROOT_HOST: "%"
+      MYSQL_DATABASE: fuluogame
+      TZ: Asia/Shanghai
+    ports:
+      - "${MYSQL_PORT:-3306}:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+      # cloud/sql/schema.sql 为完整建表脚本（含 notification 表）
+      - ./sql/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    networks:
+      - fuluogame
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$${MYSQL_ROOT_PASSWORD} --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  redis:
+    image: redis:7.2
+    container_name: redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    environment:
+      TZ: Asia/Shanghai
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - fuluogame
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  rabbitmq:
+    image: rabbitmq:4.3.0-management
+    container_name: rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBIT_USER:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBIT_PWD:-guest}
+      TZ: Asia/Shanghai
+    ports:
+      - "${RABBIT_PORT:-5672}:5672"
+      - "${RABBIT_MANAGEMENT_PORT:-15672}:15672"
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+      - ./rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
+    networks:
+      - fuluogame
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  nacos:
+    image: nacos/nacos-server:v3.2.2
+    container_name: nacos
+    restart: unless-stopped
+    environment:
+      MODE: standalone
+      # Nacos 3.x 启动脚本强制要求这三个变量存在；本地开发全部关闭鉴权
+      NACOS_AUTH_ENABLE: "false"
+      NACOS_AUTH_ADMIN_ENABLE: "false"
+      NACOS_AUTH_CONSOLE_ENABLE: "false"
+      NACOS_AUTH_TOKEN: ${NACOS_AUTH_TOKEN:-ZnVsdW9nYW1lLW5hY29zLXNlY3JldC1rZXktMjAyNi1sb2NhbC1kZXY=}
+      NACOS_AUTH_IDENTITY_KEY: ${NACOS_AUTH_IDENTITY_KEY:-serverIdentity}
+      NACOS_AUTH_IDENTITY_VALUE: ${NACOS_AUTH_IDENTITY_VALUE:-security}
+      PREFER_HOST_MODE: hostname
+      TZ: Asia/Shanghai
+    ports:
+      - "${NACOS_PORT:-8848}:8848"
+      - "${NACOS_GRPC_PORT:-9848}:9848"
+      - "${NACOS_GRPC_PORT_ALT:-9849}:9849"
+      # Nacos 3.x 控制台默认在 8080，映射到宿主机 18080 避免与应用网关 8080 冲突
+      - "${NACOS_CONSOLE_PORT:-18080}:8080"
+    volumes:
+      - nacos-data:/home/nacos/data
+      - nacos-logs:/home/nacos/logs
+    networks:
+      - fuluogame
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8848/nacos/v3/admin/core/state/readiness >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 45s
+
+  nacos-config-init:
+    image: nacos/nacos-server:v3.2.2
+    container_name: nacos-config-init
+    restart: "no"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        until curl -fsS http://nacos:8848/nacos/v3/admin/core/state/readiness;
+        do sleep 2; done;
+        curl -fsS -X POST http://nacos:8848/nacos/v3/admin/cs/config
+        --data-urlencode dataId=fuluo-common.yaml
+        --data-urlencode groupName=DEFAULT_GROUP
+        --data-urlencode type=yaml
+        --data-urlencode content@/config/fuluo-common.yaml
+    volumes:
+      - ./nacos-config/fuluo-common.yaml:/config/fuluo-common.yaml:ro
+    depends_on:
+      nacos:
+        condition: service_healthy
+    networks:
+      - fuluogame
+
+  elasticsearch:
+    image: elasticsearch:8.19.7
+    container_name: elasticsearch
+    restart: unless-stopped
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      xpack.security.enrollment.enabled: "false"
+      ES_JAVA_OPTS: ${ES_JAVA_OPTS:--Xms512m -Xmx512m}
+      TZ: Asia/Shanghai
+    ports:
+      - "${ES_PORT:-9200}:9200"
+    volumes:
+      - elasticsearch-data:/usr/share/elasticsearch/data
+    networks:
+      - fuluogame
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9200/_cluster/health >/dev/null"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 60s
+
+  canal-server:
+    image: canal/canal-server:v1.1.7
+    container_name: canal-server
+    restart: unless-stopped
+    ports:
+      - "${CANAL_PORT:-11111}:11111"
+    networks:
+      - fuluogame
+    environment:
+      DOCKER_DEPLOY_TYPE: VM
+      canal.serverMode: rabbitMQ
+      canal.auto.scan: "true"
+      canal.instance.master.address: mysql8:3306
+      canal.instance.dbUsername: root
+      canal.instance.dbPassword: ${MYSQL_ROOT_PASSWORD:-123456}
+      canal.instance.connectionCharset: UTF-8
+      canal.instance.filter.regex: "fuluogame\\.(post|comment)"
+      canal.mq.flatMessage: "true"
+      canal.mq.canalBatchSize: "50"
+      canal.mq.canalGetTimeout: "100"
+      canal.mq.topic: cdc.change
+      canal.mq.partition: "0"
+      rabbitmq.host: rabbitmq:5672
+      rabbitmq.virtual.host: /
+      rabbitmq.exchange: canal.cdc
+      rabbitmq.username: ${RABBIT_USER:-guest}
+      rabbitmq.password: ${RABBIT_PWD:-guest}
+      rabbitmq.queue: cdc.post.change
+      rabbitmq.routingKey: cdc.change
+      rabbitmq.deliveryMode: topic
+    volumes:
+      - canal-logs:/home/admin/canal-server/logs
+      - ./start-canal.sh:/opt/fuluo/start-canal.sh:ro
+    command: ["/bin/bash", "/opt/fuluo/start-canal.sh"]
+    depends_on:
+      mysql8:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "ps -ef | grep -q '[C]analLauncher' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    profiles: ["ai"]
+    restart: unless-stopped
+    ports:
+      - "${OLLAMA_PORT:-11434}:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    networks:
+      - fuluogame
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+
+networks:
+  # 复用旧 canal-compose 创建的 fuluogame 网络（external）
+  fuluogame:
+    external: true
+
+volumes:
+  mysql-data:
+  redis-data:
+  rabbitmq-data:
+  nacos-data:
+  nacos-logs:
+  elasticsearch-data:
+  canal-logs:
+  ollama-data:
+
+
+
+
+
+
+

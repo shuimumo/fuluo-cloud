@@ -1,22 +1,19 @@
 # ================================================================
 # Nacos 配置中心 —— 公共配置（Data ID: fuluo-common.yaml, Group: DEFAULT_GROUP, 格式: YAML）
 #
-# 用途：所有微服务通过 spring.config.import 拉取本文件，集中管理基础设施连接信息。
+# 作用：所有微服务通过 spring.config.import 拉取本文件，集中管理共享基础设施连接信息
+#   - 连接信息只维护这一份，改一处、全部服务生效（Nacos 动态刷新，无需重启）
+#   - 各服务本地 application.yaml 只保留"服务私有配置"（端口、路由、AI、knife4j 等）
+#   - 不使用环境变量占位符，值直接写死在这里
 #
-# 导入方式（任选其一）：
-#   1) Nacos 控制台 → 配置管理 → 新建配置：
-#        Data ID = fuluo-common.yaml   Group = DEFAULT_GROUP   格式 = YAML
-#        内容 = 本文件内容
-#   2) curl:
-#        curl -X POST "http://127.0.0.1:8848/nacos/v1/cs/configs" \
-#          -d "dataId=fuluo-common.yaml&group=DEFAULT_GROUP&type=yaml" \
-#          --data-urlencode "content@fuluo-common.yaml"
-#
-# 说明：各服务本地 application.yaml 已内置同样的基础设施默认值以便"开箱即跑"。
-# 若要让 Nacos 配置真正生效为唯一来源（生产推荐），请删除各服务本地 application.yaml
-# 中重复的 datasource/redis/rabbitmq/aliyun/elasticsearch 段——因为 spring.config.import
-# 导入的配置优先级低于导入它的本地文件。
+# 发布方式（docker compose 启动时由 nacos-config-init 容器自动发布本文件）：
+#   curl -X POST "http://127.0.0.1:8848/nacos/v3/admin/cs/config" ^
+#     --data-urlencode dataId=fuluo-common.yaml ^
+#     --data-urlencode groupName=DEFAULT_GROUP ^
+#     --data-urlencode type=yaml ^
+#     --data-urlencode content@nacos-config/fuluo-common.yaml
 # ================================================================
+
 spring:
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
@@ -44,8 +41,8 @@ aliyun:
   oss:
     bucket-name: sky-take-out-wnxby
     endpoint: oss-cn-beijing.aliyuncs.com
-    access-key-id: ${OSS_AK}
-    access-key-secret: ${OSS_SK}
+    access-key-id: ***REMOVED-SECRET***
+    access-key-secret: ***REMOVED-SECRET***
   green:
-    access-key-id: ${GREEN_AK}
-    access-key-secret: ${GREEN_SK}
+    access-key-id: ***REMOVED-SECRET***
+    access-key-secret: ***REMOVED-SECRET***

@@ -6,27 +6,29 @@ spring:
     name: fuluo-search
   config:
     import:
-      - optional:nacos:fuluo-common.yaml?group=DEFAULT_GROUP
+      - nacos:fuluo-common.yaml?group=DEFAULT_GROUP
   cloud:
+    openfeign:
+      circuitbreaker:
+        enabled: true
+      client:
+        config:
+          default:
+            connectTimeout: 1000
+            readTimeout: 2000
     nacos:
       discovery:
-        server-addr: ${NACOS_ADDR:127.0.0.1:8848}
+        server-addr: 127.0.0.1:8848
       config:
-        server-addr: ${NACOS_ADDR:127.0.0.1:8848}
+        server-addr: 127.0.0.1:8848
         file-extension: yaml
   datasource:
-    driver-class-name: com.mysql.cj.jdbc.Driver
-    url: jdbc:mysql://${DB_HOST:127.0.0.1}:3306/fuluogame?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
-    username: ${DB_USER:root}
-    password: ${DB_PWD:123456}
     hikari:
       maximum-pool-size: 10
       minimum-idle: 3
       connection-timeout: 3000
   data:
     redis:
-      host: ${REDIS_HOST:127.0.0.1}
-      port: ${REDIS_PORT:6379}
       lettuce:
         pool:
           max-active: 16
@@ -34,11 +36,6 @@ spring:
           min-idle: 4
           max-wait: 2000ms
   rabbitmq:
-    host: ${RABBIT_HOST:127.0.0.1}
-    port: 5672
-    username: ${RABBIT_USER:guest}
-    password: ${RABBIT_PWD:guest}
-    virtual-host: /
     listener:
       simple:
         prefetch: 10
@@ -51,13 +48,6 @@ spring:
           multiplier: 2
           max-attempts: 3
           max-interval: 10s
-  elasticsearch:
-    uris: http://${ES_HOST:127.0.0.1}:9200
-
-# ESConfig 读取的自定义属性
-elasticsearch:
-  host: ${ES_HOST:127.0.0.1}
-  port: 9200
 
 mybatis-plus:
   mapper-locations: classpath*:mapper/*.xml
@@ -65,14 +55,6 @@ mybatis-plus:
   configuration:
     map-underscore-to-camel-case: true
 
-feign:
-  circuitbreaker:
-    enabled: true
-  client:
-    config:
-      default:
-        connectTimeout: 1000
-        readTimeout: 2000
 
 knife4j:
   enable: true

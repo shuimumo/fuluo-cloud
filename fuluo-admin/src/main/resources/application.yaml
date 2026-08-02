@@ -6,31 +6,25 @@ spring:
     name: fuluo-admin
   config:
     import:
-      - optional:nacos:fuluo-common.yaml?group=DEFAULT_GROUP
+      - nacos:fuluo-common.yaml?group=DEFAULT_GROUP
   cloud:
     nacos:
       discovery:
-        server-addr: ${NACOS_ADDR:127.0.0.1:8848}
+        server-addr: 127.0.0.1:8848
       config:
-        server-addr: ${NACOS_ADDR:127.0.0.1:8848}
+        server-addr: 127.0.0.1:8848
         file-extension: yaml
   servlet:
     multipart:
       max-file-size: 10MB
       max-request-size: 20MB
   datasource:
-    driver-class-name: com.mysql.cj.jdbc.Driver
-    url: jdbc:mysql://${DB_HOST:127.0.0.1}:3306/fuluogame?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
-    username: ${DB_USER:root}
-    password: ${DB_PWD:123456}
     hikari:
       maximum-pool-size: 10
       minimum-idle: 3
       connection-timeout: 3000
   data:
     redis:
-      host: ${REDIS_HOST:127.0.0.1}
-      port: ${REDIS_PORT:6379}
       lettuce:
         pool:
           max-active: 16
@@ -38,11 +32,6 @@ spring:
           min-idle: 4
           max-wait: 2000ms
   rabbitmq:
-    host: ${RABBIT_HOST:127.0.0.1}
-    port: 5672
-    username: ${RABBIT_USER:guest}
-    password: ${RABBIT_PWD:guest}
-    virtual-host: /
     template:
       retry:
         enabled: true
@@ -54,16 +43,6 @@ mybatis-plus:
   type-aliases-package: com.shuimumu.fuluogame.entity
   configuration:
     map-underscore-to-camel-case: true
-
-aliyun:
-  oss:
-    bucket-name: sky-take-out-wnxby
-    endpoint: oss-cn-beijing.aliyuncs.com
-    access-key-id: ${OSS_AK}
-    access-key-secret: ${OSS_SK}
-  green:
-    access-key-id: ${GREEN_AK}
-    access-key-secret: ${GREEN_SK}
 
 knife4j:
   enable: true

@@ -6,33 +6,20 @@ spring:
     name: fuluo-notification
   config:
     import:
-      - optional:nacos:fuluo-common.yaml?group=DEFAULT_GROUP
+      - nacos:fuluo-common.yaml?group=DEFAULT_GROUP
   cloud:
     nacos:
       discovery:
-        server-addr: ${NACOS_ADDR:127.0.0.1:8848}
+        server-addr: 127.0.0.1:8848
       config:
-        server-addr: ${NACOS_ADDR:127.0.0.1:8848}
+        server-addr: 127.0.0.1:8848
         file-extension: yaml
   datasource:
-    driver-class-name: com.mysql.cj.jdbc.Driver
-    url: jdbc:mysql://${DB_HOST:127.0.0.1}:3306/fuluogame?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
-    username: ${DB_USER:root}
-    password: ${DB_PWD:123456}
     hikari:
       maximum-pool-size: 12
       minimum-idle: 3
       connection-timeout: 3000
-  data:
-    redis:
-      host: ${REDIS_HOST:127.0.0.1}
-      port: ${REDIS_PORT:6379}
   rabbitmq:
-    host: ${RABBIT_HOST:127.0.0.1}
-    port: 5672
-    username: ${RABBIT_USER:guest}
-    password: ${RABBIT_PWD:guest}
-    virtual-host: /
     listener:
       simple:
         prefetch: 20
