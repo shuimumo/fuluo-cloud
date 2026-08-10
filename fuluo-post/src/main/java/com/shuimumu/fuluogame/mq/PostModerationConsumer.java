@@ -1,6 +1,5 @@
 package com.shuimumu.fuluogame.mq;
 
-import com.shuimumu.fuluogame.utils.RedisHashCounter;
 import com.shuimumu.fuluogame.utils.UserStatsRedisHelper;
 
 import com.shuimumu.fuluogame.config.RabbitMQConfig;
@@ -16,13 +15,17 @@ import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
@@ -134,20 +137,40 @@ public class PostModerationConsumer {
             // 4) 审核通过的新帖：作者统计 + 话题计数（binlog 无法推导的一次性语义）
             //    Redis 侧为 best-effort：失败仅记日志，不回滚已落库的状态（否则整批重投后 status!=2 全部跳过，
             //    反而放大丢失面）；状态由 status 2->0 的 binlog 事件 + dirty 标记驱动最终一致。
+            //    性能：ensureUserStats 按用户去重（每用户 1 次 HLEN），累加/续期/脏标记用 executePipelined
+            //    一次往返提交整批命令，避免逐帖多次跨主机 RTT（本机 Redis 在 WSL2，单次约 1-2ms）。
             try {
+                Set<Long> authorIds = new HashSet<>();
                 for (PostModerationMsg msg : passMsgs) {
-                    if (Boolean.TRUE.equals(msg.getIsNew())) {
-                        incrAuthorStats(msg.getUserId());
-                        if (msg.getTopicIds() != null && !msg.getTopicIds().isEmpty()) {
-                            for (String tid : msg.getTopicIds().split(",")) {
-                                Long topicId = Long.valueOf(tid.trim());
-                                stringRedisTemplate.opsForHash().increment(PostRedisKeys.topic(topicId), "posts", 1);
-                                RedisHashCounter.refreshTtl(stringRedisTemplate, PostRedisKeys.topic(topicId),
-                                        PostRedisKeys.TOPIC_STATS_TTL, TimeUnit.DAYS);
-                                stringRedisTemplate.opsForSet().add(PostRedisKeys.topicDirty(topicId), topicId.toString());
+                    if (Boolean.TRUE.equals(msg.getIsNew()) && msg.getUserId() != null && msg.getUserId() > 0) {
+                        authorIds.add(msg.getUserId());
+                    }
+                }
+                for (Long uid : authorIds) {
+                    userStatsRedisHelper.ensureUserStats(uid);
+                }
+                if (!passMsgs.isEmpty()) {
+                    stringRedisTemplate.executePipelined((RedisCallback<Object>) connection -> {
+                        for (PostModerationMsg msg : passMsgs) {
+                            if (!Boolean.TRUE.equals(msg.getIsNew()) || msg.getUserId() == null || msg.getUserId() <= 0) {
+                                continue;
+                            }
+                            byte[] statsKey = utf8(UserRedisKeys.stats(msg.getUserId()));
+                            connection.hashCommands().hIncrBy(statsKey, utf8("posts"), 1);
+                            connection.keyCommands().expire(statsKey, TimeUnit.DAYS.toSeconds(UserRedisKeys.USER_STATS_TTL));
+                            connection.setCommands().sAdd(utf8(UserRedisKeys.statsDirty(msg.getUserId())), utf8(msg.getUserId().toString()));
+                            if (msg.getTopicIds() != null && !msg.getTopicIds().isEmpty()) {
+                                for (String tid : msg.getTopicIds().split(",")) {
+                                    Long topicId = Long.valueOf(tid.trim());
+                                    byte[] topicKey = utf8(PostRedisKeys.topic(topicId));
+                                    connection.hashCommands().hIncrBy(topicKey, utf8("posts"), 1);
+                                    connection.keyCommands().expire(topicKey, TimeUnit.DAYS.toSeconds(PostRedisKeys.TOPIC_STATS_TTL));
+                                    connection.setCommands().sAdd(utf8(PostRedisKeys.topicDirty(topicId)), utf8(topicId.toString()));
+                                }
                             }
                         }
-                    }
+                        return null;
+                    });
                 }
             } catch (Exception e) {
                 log.error("帖子批量审核 Redis 统计更新失败（DB 已更新，统计待补偿）", e);
@@ -171,13 +194,7 @@ public class PostModerationConsumer {
         }
     }
 
-    private void incrAuthorStats(Long userId) {
-        // 审核通过后 +posts，先 ensure 再 HINCRBY
-        userStatsRedisHelper.ensureUserStats(userId);
-        String key = UserRedisKeys.stats(userId);
-        stringRedisTemplate.opsForHash().increment(key, "posts", 1);
-        stringRedisTemplate.expire(key, UserRedisKeys.USER_STATS_TTL, TimeUnit.DAYS);
-        stringRedisTemplate.opsForSet().add(UserRedisKeys.statsDirty(userId), userId.toString());
+    private static byte[] utf8(String s) {
+        return s == null ? null : s.getBytes(StandardCharsets.UTF_8);
     }
 }
-

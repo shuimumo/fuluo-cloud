@@ -127,6 +127,7 @@ jmeter -n -t .\jmeter-publish.jmx -Jthreads=50 -Jduration=20 "-Jfuluo.token=$tok
 | 优先级 | 项 | 说明 |
 |---|---|---|
 | ~~P1 消费端写库优化~~ | 已完成：批量监听 + `insertBatch` + 审核批量回写，写库 ≈3000/s（2026-08-03/08-10） |
+| P1 | 持久化消费者再提速 | `sync.persistence.post` 压测峰值仍 ~16k：zset 写入 pipeline 化 + `post_topic` 批量插入，追平审核端（~1500-2000/s → 数千/s） |
 | P1 | 发布端可靠性 | `publisher-confirm-type: correlated` + `mandatory: true` + Confirm/Return 回调 + 失败补偿，消除"假成功"静默丢 |
 | P2 | 毒消息治理 | `default-requeue-rejected: false` + 死信队列（DLX）+ 告警 |
 | P2 | Redis 减负 | ID 生成/布隆/计数依赖 Redis 单线程，评估分片或替换 |
@@ -181,11 +182,16 @@ docker exec rabbitmq rabbitmqctl list_bindings
 - **实测**：消费端写库吞吐 300-400/s → **≈3000/s**；积压 17219 条 8 秒排空，0 错误。
 - 说明：审核开关 `fuluo.moderation.enabled=false` 时仍逐条走审核消费者，此时新瓶颈为审核消费者单条 SELECT+UPDATE（约 300/s）。
 
-### R2：2026-08-10 帖子/评论审核消费者改批量
+### R2：2026-08-10 帖子/评论审核消费者改批量（已实测）
 
-- **改动**（本批代码，已编译验证）：
+- **改动**：
   - `PostMapper` / `CommentMapper` 新增 `updateStatusBatch`（CASE WHEN 一次 UPDATE 整批，SQL 已对 MySQL 实测通过）；
   - `PostModerationConsumer` 复用 `postBatchListenerContainerFactory`，改收批量消息：批量 `selectBatchIds` + 批量回写审核状态；
   - `fuluo-comment` 新增 `CommentBatchConfig`（同参数批量容器），`CommentModerationConsumer` 同样改批量；
   - 真实审核模式下仍逐条调阿里云 `TextModerationPlus`（该接口不支持一次请求审多条，吞吐受账户 QPS 配额限制）。
-- **待复测**：本地 jar 启动受既有 Nacos 配置导入兼容问题（SCA 2023.0.3.3 + nacos-client 2.4.2 vs server 2.3.2）阻塞，R2 尚未实测排空速率；预期跳过模式下审核消费者吞吐从 ~300/s 提升到千级/s（每批 1 次 SELECT + 1 次 UPDATE）。
+- **实测**（50×20s JMeter 压测，审核关闭 `fuluo.moderation.enabled=false`）：
+  1. 第一版（仅批量查库+批量回写）：审核消费者 ≈**500/s**（旧版单条 ~300/s），`sync.moderation` 峰值积压 **16.7k**、压测结束 ~40s 排空——批量生效但仍积压；
+  2. 定位瓶颈：跳过模式下每帖仍有 4 次 Redis 往返（HLEN+HINCRBY+EXPIRE+SADD），本机 Redis 跑在 WSL2、跨主机单次 ~1-2ms；旁证：每帖仅 1 次往返的持久化消费者 ~1500-2000/s，恰好约 4:1；
+  3. 第二版：`ensureUserStats` 按用户去重 + `executePipelined` 整批提交（每帖 4 次往返 → 整批 1 次往返）：`sync.moderation` 全程 **0~1550**、不再积压，与生产端持平；压测新增 20539 帖全部 status 2→0，**成功数=落库数=20539，0 丢失**。
+- **剩余瓶颈**：`sync.persistence.post` 压测峰值仍 ~16k（持久化消费者每帖 1 次 zset 往返 + 逐帖 insert `post_topic`），为下一步优化项。
+
