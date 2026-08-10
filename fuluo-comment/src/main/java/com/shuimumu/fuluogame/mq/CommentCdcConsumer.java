@@ -25,7 +25,7 @@ public class CommentCdcConsumer {
     @Autowired
     private RabbitTemplate rabbitTemplate;
 
-    @RabbitListener(queues = RabbitMQConfig.QUEUE_CDC_COMMENT)
+    @RabbitListener(queues = RabbitMQConfig.QUEUE_CDC_COMMENT, containerFactory = "cdcListenerContainerFactory")
     public void handleCdc(Message message) {
         String body = new String(message.getBody(), StandardCharsets.UTF_8);
         try {

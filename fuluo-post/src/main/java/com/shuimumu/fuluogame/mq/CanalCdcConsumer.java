@@ -35,7 +35,7 @@ public class CanalCdcConsumer {
     @Autowired
     private StringRedisTemplate stringRedisTemplate;
 
-    @RabbitListener(queues = RabbitMQConfig.QUEUE_CDC)
+    @RabbitListener(queues = RabbitMQConfig.QUEUE_CDC, containerFactory = "cdcListenerContainerFactory")
     public void handleCdc(Message message) {
         String body = new String(message.getBody(), StandardCharsets.UTF_8);
         try {
