@@ -8,6 +8,8 @@ import java.util.List;
 
 public interface PostMapper extends BaseMapper<Post> {
     void upsertBatch(List<Post> posts);
+    /** 批量插入新帖（ON DUPLICATE KEY 幂等，用于消费者批量落库） */
+    void insertBatch(@Param("list") List<Post> posts);
 
     /** 公开帖数量（status=0） */
     long countPublished();

@@ -2,6 +2,15 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.shuimumu.fuluogame.mapper.PostMapper">
 
+    <insert id="insertBatch">
+        INSERT INTO `post`
+            (id, user_id, title, content, images, likes, comments, views, shares, topic_names, status, create_time, update_time)
+        VALUES
+        <foreach collection="list" item="p" separator=",">
+            (#{p.id}, #{p.userId}, #{p.title}, #{p.content}, #{p.images}, #{p.likes}, #{p.comments}, #{p.views}, #{p.shares}, #{p.topicNames}, #{p.status}, #{p.createTime}, #{p.updateTime})
+        </foreach>
+        ON DUPLICATE KEY UPDATE id = id
+    </insert>
     <update id="upsertBatch">
         UPDATE `post` SET
             likes = CASE id
