@@ -1,0 +1,19 @@
+# ---- 说明：本项目不使用 .env 文件 ----
+# Java 服务配置走 application.yaml + application-{profile}.yaml（默认 dev profile）
+# docker-compose.yml 内所有 ${VAR:-默认值} 均有默认值，可直接 docker compose up；
+# 如需覆盖端口/口令，在 shell 里设置真实环境变量即可
+
+# ---- 构建产物 ----
+target/
+*.class
+*.jar
+*.war
+
+# ---- IDE ----
+.idea/
+*.iml
+.vscode/
+
+# ---- 日志 ----
+*.log
+logs/

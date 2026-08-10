@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.shuimumu.fuluogame.mapper.CommentMapper">
+
+    <update id="updateStatusBatch">
+        UPDATE `comment` SET
+            status = CASE id
+                <foreach collection="list" item="c">
+                    WHEN #{c.id} THEN #{c.status}
+                </foreach>
+            END,
+            moderation_desc = CASE id
+                <foreach collection="list" item="c">
+                    WHEN #{c.id} THEN #{c.moderationDesc}
+                </foreach>
+            END,
+            moderation_words = CASE id
+                <foreach collection="list" item="c">
+                    WHEN #{c.id} THEN #{c.moderationWords}
+                </foreach>
+            END
+        WHERE id IN
+        <foreach collection="list" item="c" open="(" separator="," close=")">
+            #{c.id}
+        </foreach>
+    </update>
+
+</mapper>

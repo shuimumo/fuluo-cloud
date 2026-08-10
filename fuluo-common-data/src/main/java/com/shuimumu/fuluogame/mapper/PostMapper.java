@@ -11,6 +11,9 @@ public interface PostMapper extends BaseMapper<Post> {
     /** 批量插入新帖（ON DUPLICATE KEY 幂等，用于消费者批量落库） */
     void insertBatch(@Param("list") List<Post> posts);
 
+    /** 批量更新审核状态（CASE WHEN，一次 UPDATE 处理整批，用于审核消费者批量回写） */
+    void updateStatusBatch(@Param("list") List<Post> posts);
+
     /** 公开帖数量（status=0） */
     long countPublished();
 

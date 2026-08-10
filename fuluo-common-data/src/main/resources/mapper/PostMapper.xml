@@ -34,7 +34,30 @@
         </foreach>
     </update>
 
-    <select id="countPublished" resultType="long">
+    <update id="updateStatusBatch">
+        UPDATE `post` SET
+            status = CASE id
+                <foreach collection="list" item="p">
+                    WHEN #{p.id} THEN #{p.status}
+                </foreach>
+            END,
+            moderation_desc = CASE id
+                <foreach collection="list" item="p">
+                    WHEN #{p.id} THEN #{p.moderationDesc}
+                </foreach>
+            END,
+            moderation_words = CASE id
+                <foreach collection="list" item="p">
+                    WHEN #{p.id} THEN #{p.moderationWords}
+                </foreach>
+            END
+        WHERE id IN
+        <foreach collection="list" item="p" open="(" separator="," close=")">
+            #{p.id}
+        </foreach>
+    </update>
+
+<select id="countPublished" resultType="long">
         SELECT COUNT(*) FROM `post` WHERE status = 0
     </select>
 
