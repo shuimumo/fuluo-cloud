@@ -127,21 +127,6 @@ public class PostCommentServiceImpl implements PostCommentService {
             return PageVO.of(List.of(), 0L, 1, 0);
         }
         List<Long> ids = members.stream().map(Long::parseLong).collect(Collectors.toList());
-        List<String> cacheKeys = ids.stream()
-                .map(SystemRedisKeys::cacheCommentContent).collect(Collectors.toList());
-        List<String> cachedJsons = stringRedisTemplate.opsForValue().multiGet(cacheKeys);
-        Map<Long, CommentVO> resultMap = new LinkedHashMap<>();
-        List<Long> missIds = new ArrayList<>();
-        for (int i = 0; i < ids.size(); i++) {
-            String json = cachedJsons != null ? cachedJsons.get(i) : null;
-            if (json != null && !json.isEmpty()) {
-                resultMap.put(ids.get(i), JSONUtil.toBean(json, CommentVO.class));
-                stringRedisTemplate.expire(SystemRedisKeys.cacheCommentContent(ids.get(i)),
-                        PostRedisKeys.COMMENT_CONTENT_CACHE_TTL, TimeUnit.MINUTES);
-            } else {
-                missIds.add(ids.get(i));
-            }
-        }
         String postJson = stringRedisTemplate.opsForValue().get(SystemRedisKeys.cachePostContent(postId));
         Long postAuthorId = null;
         if (postJson != null && !postJson.isEmpty()) {
@@ -150,16 +135,8 @@ public class PostCommentServiceImpl implements PostCommentService {
             Post post = postMapper.selectById(postId);
             postAuthorId = post != null ? post.getUserId() : null;
         }
-        final Long authorId = postAuthorId;
-        for (Long cid : missIds) {
-            String dataKey = SystemRedisKeys.cacheCommentContent(cid);
-            CommentVO vo = cacheClient.queryWithMutex("lock:" + dataKey, dataKey, CommentVO.class, () -> {
-                Comment c = commentMapper.selectById(cid);
-                if (c == null || c.getStatus() != 0) return null;
-                return commentToVO(c, authorId);
-            }, PostRedisKeys.COMMENT_CONTENT_CACHE_TTL, TimeUnit.MINUTES);
-            if (vo != null) resultMap.put(cid, vo);
-        }
+        // P2 修复：抽取公共组装（MGET+回填）
+        Map<Long, CommentVO> resultMap = loadCommentVOs(ids, postAuthorId);
         List<Object> replyCounts = stringRedisTemplate.executePipelined(
                 (org.springframework.data.redis.core.RedisCallback<Object>) connection -> {
                     for (Long cid : ids) {
@@ -214,30 +191,8 @@ public class PostCommentServiceImpl implements PostCommentService {
             return PageVO.of(List.of(), 0L, page, size);
         }
         List<Long> ids = members.stream().map(Long::parseLong).collect(Collectors.toList());
-        List<String> cacheKeys = ids.stream()
-                .map(SystemRedisKeys::cacheCommentContent).collect(Collectors.toList());
-        List<String> cachedJsons = stringRedisTemplate.opsForValue().multiGet(cacheKeys);
-        Map<Long, CommentVO> resultMap = new LinkedHashMap<>();
-        List<Long> missIds = new ArrayList<>();
-        for (int i = 0; i < ids.size(); i++) {
-            String json = cachedJsons != null ? cachedJsons.get(i) : null;
-            if (json != null && !json.isEmpty()) {
-                resultMap.put(ids.get(i), JSONUtil.toBean(json, CommentVO.class));
-                stringRedisTemplate.expire(SystemRedisKeys.cacheCommentContent(ids.get(i)),
-                        PostRedisKeys.COMMENT_CONTENT_CACHE_TTL, TimeUnit.MINUTES);
-            } else {
-                missIds.add(ids.get(i));
-            }
-        }
-        for (Long cid : missIds) {
-            String dataKey = SystemRedisKeys.cacheCommentContent(cid);
-            CommentVO vo = cacheClient.queryWithMutex("lock:" + dataKey, dataKey, CommentVO.class, () -> {
-                Comment c = commentMapper.selectById(cid);
-                if (c == null || c.getStatus() != 0) return null;
-                return commentToVO(c, null);
-            }, PostRedisKeys.COMMENT_CONTENT_CACHE_TTL, TimeUnit.MINUTES);
-            if (vo != null) resultMap.put(cid, vo);
-        }
+        // P2 修复：抽取公共组装（MGET+回填），回复列表不标记作者身份
+        Map<Long, CommentVO> resultMap = loadCommentVOs(ids, null);
         Set<Long> userIds = resultMap.values().stream()
                 .map(CommentVO::getUserId).filter(Objects::nonNull).collect(Collectors.toSet());
         Map<Long, UserVO> userMap = userService.batchGetProfiles(userIds);
@@ -275,21 +230,6 @@ public class PostCommentServiceImpl implements PostCommentService {
             return PageVO.of(List.of(), 0L, page, size);
         }
         List<Long> ids = members.stream().map(Long::parseLong).collect(Collectors.toList());
-        List<String> cacheKeys = ids.stream()
-                .map(SystemRedisKeys::cacheCommentContent).collect(Collectors.toList());
-        List<String> cachedJsons = stringRedisTemplate.opsForValue().multiGet(cacheKeys);
-        Map<Long, CommentVO> resultMap = new LinkedHashMap<>();
-        List<Long> missIds = new ArrayList<>();
-        for (int i = 0; i < ids.size(); i++) {
-            String json = cachedJsons != null ? cachedJsons.get(i) : null;
-            if (json != null && !json.isEmpty()) {
-                resultMap.put(ids.get(i), JSONUtil.toBean(json, CommentVO.class));
-                stringRedisTemplate.expire(SystemRedisKeys.cacheCommentContent(ids.get(i)),
-                        PostRedisKeys.COMMENT_CONTENT_CACHE_TTL, TimeUnit.MINUTES);
-            } else {
-                missIds.add(ids.get(i));
-            }
-        }
         String postJson = stringRedisTemplate.opsForValue().get(SystemRedisKeys.cachePostContent(postId));
         Long postAuthorId = null;
         if (postJson != null && !postJson.isEmpty()) {
@@ -298,16 +238,8 @@ public class PostCommentServiceImpl implements PostCommentService {
             Post post = postMapper.selectById(postId);
             postAuthorId = post != null ? post.getUserId() : null;
         }
-        final Long authorId = postAuthorId;
-        for (Long cid : missIds) {
-            String dataKey = SystemRedisKeys.cacheCommentContent(cid);
-            CommentVO vo = cacheClient.queryWithMutex("lock:" + dataKey, dataKey, CommentVO.class, () -> {
-                Comment c = commentMapper.selectById(cid);
-                if (c == null || c.getStatus() != 0) return null;
-                return commentToVO(c, authorId);
-            }, PostRedisKeys.COMMENT_CONTENT_CACHE_TTL, TimeUnit.MINUTES);
-            if (vo != null) resultMap.put(cid, vo);
-        }
+        // P2 修复：抽取公共组装（MGET+回填）
+        Map<Long, CommentVO> resultMap = loadCommentVOs(ids, postAuthorId);
         List<Object> replyCounts = stringRedisTemplate.executePipelined(
                 (org.springframework.data.redis.core.RedisCallback<Object>) connection -> {
                     for (Long cid : ids) {
@@ -455,6 +387,37 @@ return true;
         BeanUtils.copyProperties(c, vo);
         vo.setAuthor(postAuthorId != null && postAuthorId.equals(c.getUserId()));
         return vo;
+    }
+
+    /**
+     * P2 修复（样板复制抽取）：按 id 保序加载评论内容缓存 + 互斥锁回填。
+     * list/replies/list-hot 三处复制的「MGET + 命中/未命中 + 回填」统一到这里；
+     * 命中后不再逐条续期（固定 TTL），回填只保留 status=0 的可见评论。
+     */
+    private Map<Long, CommentVO> loadCommentVOs(List<Long> ids, Long postAuthorId) {
+        Map<Long, CommentVO> resultMap = new LinkedHashMap<>();
+        List<String> cacheKeys = ids.stream()
+                .map(SystemRedisKeys::cacheCommentContent).collect(Collectors.toList());
+        List<String> cachedJsons = stringRedisTemplate.opsForValue().multiGet(cacheKeys);
+        List<Long> missIds = new ArrayList<>();
+        for (int i = 0; i < ids.size(); i++) {
+            String json = cachedJsons != null ? cachedJsons.get(i) : null;
+            if (json != null && !json.isEmpty()) {
+                resultMap.put(ids.get(i), JSONUtil.toBean(json, CommentVO.class));
+            } else {
+                missIds.add(ids.get(i));
+            }
+        }
+        for (Long cid : missIds) {
+            String dataKey = SystemRedisKeys.cacheCommentContent(cid);
+            CommentVO vo = cacheClient.queryWithMutex("lock:" + dataKey, dataKey, CommentVO.class, () -> {
+                Comment c = commentMapper.selectById(cid);
+                if (c == null || c.getStatus() != 0) return null;
+                return commentToVO(c, postAuthorId);
+            }, PostRedisKeys.COMMENT_CONTENT_CACHE_TTL, TimeUnit.MINUTES);
+            if (vo != null) resultMap.put(cid, vo);
+        }
+        return resultMap;
     }
 
     private String getPostTitleFromCache(Long postId) {

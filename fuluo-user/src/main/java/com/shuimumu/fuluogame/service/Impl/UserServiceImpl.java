@@ -89,8 +89,8 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         String json = stringRedisTemplate.opsForValue().get(cacheKey);
         UserVO vo;
         if (json != null && !json.isEmpty()) {
+            // P1 修复：命中后不续期，用户缓存固定 TTL
             vo = JSONUtil.toBean(json, UserVO.class);
-            stringRedisTemplate.expire(cacheKey, UserRedisKeys.CACHE_USER_TTL, TimeUnit.MINUTES);
         } else {
             vo = cacheClient.queryWithMutex("lock:" + cacheKey, cacheKey, UserVO.class, () -> {
                 User user = query().eq("id", userId).one();
@@ -124,9 +124,8 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         for (Long uid : userIds) {
             String json = jsons != null ? jsons.get(i++) : null;
             if (json != null && !json.isEmpty()) {
+                // P1 修复：命中后不续期，用户缓存固定 TTL
                 result.put(uid, JSONUtil.toBean(json, UserVO.class));
-                stringRedisTemplate.expire(SystemRedisKeys.cacheUser(uid),
-                        UserRedisKeys.CACHE_USER_TTL, TimeUnit.MINUTES);
             } else {
                 missIds.add(uid);
             }
@@ -143,6 +142,49 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
             if (uvo != null) result.put(uid, uvo);
         }
         return result;
+    }
+
+    /**
+     * P2 修复（样板复制抽取）：按 id 保序加载帖子内容缓存 + 互斥锁回填 + 填充用户/计数/状态。
+     * getUserPosts/getUserLiked/getInbox 原本各自复制了一份「MGET + 回填 + 填充」逻辑，
+     * 这里统一为单个方法；publicOnly 控制回填时是否只保留 status=0 的公开帖（本人视角可见全部）。
+     * 命中缓存后不再逐条续期（P1 修复），缓存固定 TTL。
+     */
+    private List<PostContentVO> loadPostsOrdered(List<Long> postIds, boolean publicOnly) {
+        if (postIds == null || postIds.isEmpty()) return List.of();
+        List<String> cacheKeys = postIds.stream()
+                .map(SystemRedisKeys::cachePostContent).collect(Collectors.toList());
+        List<String> cachedJsons = stringRedisTemplate.opsForValue().multiGet(cacheKeys);
+        Map<Long, PostContentVO> resultMap = new LinkedHashMap<>();
+        List<Long> missIds = new ArrayList<>();
+        for (int i = 0; i < postIds.size(); i++) {
+            Long pid = postIds.get(i);
+            String json = cachedJsons != null ? cachedJsons.get(i) : null;
+            if (json != null && !json.isEmpty()) {
+                resultMap.put(pid, JSONUtil.toBean(json, PostContentVO.class));
+            } else {
+                missIds.add(pid);
+            }
+        }
+        for (Long pid : missIds) {
+            String dataKey = SystemRedisKeys.cachePostContent(pid);
+            PostContentVO vo = cacheClient.queryWithMutex("lock:" + dataKey, dataKey, PostContentVO.class, () -> {
+                Post p = postMapper.selectById(pid);
+                if (p == null || (publicOnly && p.getStatus() != 0)) return null;
+                return postAssembler.toVO(p);
+            }, PostRedisKeys.POST_CONTENT_CACHE_TTL, TimeUnit.MINUTES);
+            if (vo != null) resultMap.put(pid, vo);
+        }
+        List<PostContentVO> records = new ArrayList<>();
+        for (Long pid : postIds) {
+            PostContentVO vo = resultMap.get(pid);
+            if (vo != null) records.add(vo);
+        }
+        postAssembler.fillUsers(records, batchGetProfiles(
+                records.stream().map(PostContentVO::getUserId).filter(Objects::nonNull).collect(Collectors.toSet())));
+        postAssembler.fillCounts(records);
+        postAssembler.fillStatus(records);
+        return records;
     }
 
     @Override
@@ -200,40 +242,8 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
                 return PageVO.of(List.of(), 0L, page, size);
             }
             List<Long> postIds = members.stream().map(Long::parseLong).collect(Collectors.toList());
-            List<String> cacheKeys = postIds.stream()
-                    .map(SystemRedisKeys::cachePostContent).collect(Collectors.toList());
-            List<String> cachedJsons = stringRedisTemplate.opsForValue().multiGet(cacheKeys);
-            Map<Long, PostContentVO> resultMap = new LinkedHashMap<>();
-            List<Long> missIds = new ArrayList<>();
-            for (int i = 0; i < postIds.size(); i++) {
-                Long pid = postIds.get(i);
-                String json = cachedJsons != null ? cachedJsons.get(i) : null;
-                if (json != null && !json.isEmpty()) {
-                    resultMap.put(pid, JSONUtil.toBean(json, PostContentVO.class));
-                    stringRedisTemplate.expire(SystemRedisKeys.cachePostContent(pid),
-                            PostRedisKeys.POST_CONTENT_CACHE_TTL, TimeUnit.MINUTES);
-                } else {
-                    missIds.add(pid);
-                }
-            }
-            for (Long pid : missIds) {
-                String dataKey = SystemRedisKeys.cachePostContent(pid);
-                PostContentVO vo = cacheClient.queryWithMutex("lock:" + dataKey, dataKey, PostContentVO.class, () -> {
-                    Post p = postMapper.selectById(pid);
-                    if (p == null) return null;
-                    return postAssembler.toVO(p);
-                }, PostRedisKeys.POST_CONTENT_CACHE_TTL, TimeUnit.MINUTES);
-                if (vo != null) resultMap.put(pid, vo);
-            }
-            List<PostContentVO> records = new ArrayList<>();
-            for (Long pid : postIds) {
-                PostContentVO vo = resultMap.get(pid);
-                if (vo != null) records.add(vo);
-            }
-            postAssembler.fillUsers(records, batchGetProfiles(
-                    records.stream().map(PostContentVO::getUserId).filter(Objects::nonNull).collect(Collectors.toSet())));
-            postAssembler.fillCounts(records);
-            postAssembler.fillStatus(records);
+            // P2 修复：抽取公共组装（MGET+回填+填充），本人视角 publicOnly=false 可见非公开帖
+            List<PostContentVO> records = loadPostsOrdered(postIds, false);
             Long total = stringRedisTemplate.opsForZSet().zCard(zsetKey);
             return PageVO.of(records, total != null ? total : 0L, page, size);
         }
@@ -246,40 +256,8 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
             return PageVO.of(List.of(), 0L, page, size);
         }
         List<Long> postIds = members.stream().map(Long::parseLong).collect(Collectors.toList());
-        List<String> cacheKeys = postIds.stream()
-                .map(SystemRedisKeys::cachePostContent).collect(Collectors.toList());
-        List<String> cachedJsons = stringRedisTemplate.opsForValue().multiGet(cacheKeys);
-        Map<Long, PostContentVO> resultMap = new LinkedHashMap<>();
-        List<Long> missIds = new ArrayList<>();
-        for (int i = 0; i < postIds.size(); i++) {
-            Long pid = postIds.get(i);
-            String json = cachedJsons != null ? cachedJsons.get(i) : null;
-            if (json != null && !json.isEmpty()) {
-                resultMap.put(pid, JSONUtil.toBean(json, PostContentVO.class));
-                stringRedisTemplate.expire(SystemRedisKeys.cachePostContent(pid),
-                        PostRedisKeys.POST_CONTENT_CACHE_TTL, TimeUnit.MINUTES);
-            } else {
-                missIds.add(pid);
-            }
-        }
-        for (Long pid : missIds) {
-            String dataKey = SystemRedisKeys.cachePostContent(pid);
-            PostContentVO vo = cacheClient.queryWithMutex("lock:" + dataKey, dataKey, PostContentVO.class, () -> {
-                Post p = postMapper.selectById(pid);
-                if (p == null || p.getStatus() != 0) return null;
-                return postAssembler.toVO(p);
-            }, PostRedisKeys.POST_CONTENT_CACHE_TTL, TimeUnit.MINUTES);
-            if (vo != null) resultMap.put(pid, vo);
-        }
-        List<PostContentVO> records = new ArrayList<>();
-        for (Long pid : postIds) {
-            PostContentVO vo = resultMap.get(pid);
-            if (vo != null) records.add(vo);
-        }
-        postAssembler.fillUsers(records, batchGetProfiles(
-                records.stream().map(PostContentVO::getUserId).filter(Objects::nonNull).collect(Collectors.toSet())));
-        postAssembler.fillCounts(records);
-        postAssembler.fillStatus(records);
+        // P2 修复：抽取公共组装，他人视角 publicOnly=true 只保留 status=0
+        List<PostContentVO> records = loadPostsOrdered(postIds, true);
         Long total = stringRedisTemplate.opsForZSet().zCard(zsetKey);
         return PageVO.of(records, total != null ? total : 0L, page, size);
     }
@@ -304,40 +282,8 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         Set<String> members = stringRedisTemplate.opsForZSet().reverseRange(key, start, end);
         if (members == null || members.isEmpty()) return PageVO.of(List.of(), 0, page, size);
         List<Long> postIds = members.stream().map(Long::parseLong).collect(Collectors.toList());
-        // MGET 单帖缓存
-        List<String> cacheKeys = postIds.stream()
-                .map(SystemRedisKeys::cachePostContent).collect(Collectors.toList());
-        List<String> cachedJsons = stringRedisTemplate.opsForValue().multiGet(cacheKeys);
-        Map<Long, PostContentVO> resultMap = new LinkedHashMap<>();
-        List<Long> missIds = new ArrayList<>();
-        for (int i = 0; i < postIds.size(); i++) {
-            String json = cachedJsons != null ? cachedJsons.get(i) : null;
-            if (json != null && !json.isEmpty()) {
-                resultMap.put(postIds.get(i), JSONUtil.toBean(json, PostContentVO.class));
-                stringRedisTemplate.expire(SystemRedisKeys.cachePostContent(postIds.get(i)),
-                        PostRedisKeys.POST_CONTENT_CACHE_TTL, TimeUnit.MINUTES);
-            } else {
-                missIds.add(postIds.get(i));
-            }
-        }
-        for (Long pid : missIds) {
-            String dataKey = SystemRedisKeys.cachePostContent(pid);
-            PostContentVO vo = cacheClient.queryWithMutex("lock:" + dataKey, dataKey, PostContentVO.class, () -> {
-                Post p = postMapper.selectById(pid);
-                if (p == null || p.getStatus() != 0) return null;
-                return postAssembler.toVO(p);
-            }, PostRedisKeys.POST_CONTENT_CACHE_TTL, TimeUnit.MINUTES);
-            if (vo != null) resultMap.put(pid, vo);
-        }
-        List<PostContentVO> records = new ArrayList<>();
-        for (Long pid : postIds) {
-            PostContentVO vo = resultMap.get(pid);
-            if (vo != null) records.add(vo);
-        }
-        postAssembler.fillUsers(records, batchGetProfiles(
-                records.stream().map(PostContentVO::getUserId).filter(Objects::nonNull).collect(Collectors.toSet())));
-        postAssembler.fillCounts(records);
-        postAssembler.fillStatus(records);
+        // P2 修复：抽取公共组装（MGET+回填+填充）
+        List<PostContentVO> records = loadPostsOrdered(postIds, true);
         Long total = stringRedisTemplate.opsForZSet().zCard(key);
         return PageVO.of(records, total != null ? total : 0L, page, size);
     }
@@ -541,40 +487,8 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
             return PageVO.of(List.of(), 0L, page, size);
         }
         List<Long> postIds = members.stream().map(Long::parseLong).collect(Collectors.toList());
-        List<String> cacheKeys = postIds.stream()
-                .map(SystemRedisKeys::cachePostContent).collect(Collectors.toList());
-        List<String> cachedJsons = stringRedisTemplate.opsForValue().multiGet(cacheKeys);
-        Map<Long, PostContentVO> resultMap = new LinkedHashMap<>();
-        List<Long> missIds = new ArrayList<>();
-        for (int i = 0; i < postIds.size(); i++) {
-            Long pid = postIds.get(i);
-            String json = cachedJsons != null ? cachedJsons.get(i) : null;
-            if (json != null && !json.isEmpty()) {
-                resultMap.put(pid, JSONUtil.toBean(json, PostContentVO.class));
-                stringRedisTemplate.expire(SystemRedisKeys.cachePostContent(pid),
-                        PostRedisKeys.POST_CONTENT_CACHE_TTL, TimeUnit.MINUTES);
-            } else {
-                missIds.add(pid);
-            }
-        }
-        for (Long pid : missIds) {
-            String dataKey = SystemRedisKeys.cachePostContent(pid);
-            PostContentVO vo = cacheClient.queryWithMutex("lock:" + dataKey, dataKey, PostContentVO.class, () -> {
-                Post p = postMapper.selectById(pid);
-                if (p == null || p.getStatus() != 0) return null;
-                return postAssembler.toVO(p);
-            }, PostRedisKeys.POST_CONTENT_CACHE_TTL, TimeUnit.MINUTES);
-            if (vo != null) resultMap.put(pid, vo);
-        }
-        List<PostContentVO> records = new ArrayList<>();
-        for (Long pid : postIds) {
-            PostContentVO vo = resultMap.get(pid);
-            if (vo != null) records.add(vo);
-        }
-        postAssembler.fillUsers(records, batchGetProfiles(
-                records.stream().map(PostContentVO::getUserId).filter(Objects::nonNull).collect(Collectors.toSet())));
-        postAssembler.fillCounts(records);
-        postAssembler.fillStatus(records);
+        // P2 修复：抽取公共组装（MGET+回填+填充）
+        List<PostContentVO> records = loadPostsOrdered(postIds, true);
         Long total = stringRedisTemplate.opsForZSet().zCard(mergedKey);
         return PageVO.of(records, total != null ? total : 0L, page, size);
     }
