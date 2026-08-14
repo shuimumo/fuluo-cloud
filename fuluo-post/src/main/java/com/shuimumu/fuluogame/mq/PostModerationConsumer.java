@@ -46,7 +46,9 @@ public class PostModerationConsumer {
     @Autowired
     private PostMapper postMapper;
 
-    @Autowired
+    // P0 修复：required=false，审核 SDK 未配置（aliyun.green.enabled!=true）时本字段为 null，
+    // 下方审核逻辑走失败安全分支（保持待审核），避免无审核放行或服务启动失败。
+    @Autowired(required = false)
     private ContentModerationUtil contentModerationUtil;
 
     @Autowired
@@ -88,9 +90,15 @@ public class PostModerationConsumer {
 
                 ContentModerationUtil.ModerationResult result;
                 if (!moderationEnabled) {
-                    // 压测/本地调试：跳过阿里云 Green 审核，直接放行
+                    // 压测/本地调试：显式关闭审核，直接放行
                     result = new ContentModerationUtil.ModerationResult(
                             true, ContentModerationUtil.Action.PASS, "none", null, null, null, 0);
+                } else if (contentModerationUtil == null) {
+                    // P0 修复：审核开启但 SDK 未配置（密钥缺失）——失败安全，保持待审核，绝不无审核放行
+                    log.error("审核SDK未配置，帖子 {} 保持待审核", post.getId());
+                    result = new ContentModerationUtil.ModerationResult(
+                            false, ContentModerationUtil.Action.MANUAL_REVIEW, "none", null,
+                            "审核服务未配置", null, 0);
                 } else {
                     result = contentModerationUtil.moderateComment(post.getTitle() + " " + post.getContent());
                 }

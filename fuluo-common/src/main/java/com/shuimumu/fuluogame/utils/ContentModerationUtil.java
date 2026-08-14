@@ -23,7 +23,9 @@ import org.springframework.stereotype.Component;
 
 @Slf4j
 @Component
-@ConditionalOnProperty(prefix = "aliyun.green", name = "access-key-id")
+// P0 修复：与 GreenConfig 保持一致，按 aliyun.green.enabled=true 显式开关加载。
+// 密钥缺失时该 Bean 不创建，消费端用 @Autowired(required=false) + 失败安全兜底（保持待审核）。
+@ConditionalOnProperty(prefix = "aliyun.green", name = "enabled", havingValue = "true")
 public class ContentModerationUtil {
 
     public static final String NICKNAME_DETECTION_PRO = "nickname_detection_pro";

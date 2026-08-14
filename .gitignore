@@ -1,7 +1,12 @@
-# ---- 说明：本项目不使用 .env 文件 ----
-# Java 服务配置走 application.yaml + application-{profile}.yaml（默认 dev profile）
-# docker-compose.yml 内所有 ${VAR:-默认值} 均有默认值，可直接 docker compose up；
-# 如需覆盖端口/口令，在 shell 里设置真实环境变量即可
+# ---- 说明：密钥已外部化为环境变量，模板见 .env.example ----
+# Java 服务配置走 application.yaml + Nacos 公共配置（fuluo-common.yaml）
+# 真实密钥放入 .env（本文件已忽略），或直接在 shell 里设置环境变量
+
+# ---- 环境变量（真实密钥，禁止提交）----
+.env
+
+# ---- 压测产物 ----
+*.jtl
 
 # ---- 构建产物 ----
 target/

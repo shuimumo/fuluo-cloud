@@ -7,7 +7,8 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 @Configuration
-@ConditionalOnProperty(prefix = "aliyun.oss", name = "endpoint")
+// P0 修复：改为按显式 enabled 开关加载，避免密钥外部化后空串仍触发 Bean 创建。
+@ConditionalOnProperty(prefix = "aliyun.oss", name = "enabled", havingValue = "true")
 public class OssConfig {
 
     @Value("${aliyun.oss.endpoint}")
