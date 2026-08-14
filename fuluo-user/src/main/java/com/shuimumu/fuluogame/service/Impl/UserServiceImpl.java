@@ -76,6 +76,9 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     private UserMapper userMapper;
 
     @Autowired
+    private FollowMapper followMapper;
+
+    @Autowired
     private PostAssembler postAssembler;
 
     @Override
@@ -341,27 +344,21 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
 
     @Override
     public PageVO<FollowVO> getFollowList(Long userId, String type, int page, int size) {
-        String key = "following".equals(type)
-                ? UserRedisKeys.following(userId)
-                : UserRedisKeys.followers(userId);
-
-        Set<String> members = stringRedisTemplate.opsForSet().members(key);
-        if (members == null || members.isEmpty()) {
-            return PageVO.of(List.of(), 0, page, size);
-        }
-
-        List<String> allIds = new ArrayList<>(members);
-        long total = allIds.size();
-        int from = (page - 1) * size;
-        int to = Math.min(from + size, allIds.size());
-        if (from >= allIds.size()) {
+        // P2 修复：关注/粉丝列表从「全量 SMEMBERS + 内存分页」改为 DB 分页查询，
+        // 避免大 V 粉丝集合每次请求全量拉取。follow 表有 uk_follow(follower_id, followed_id) 与 idx_followed_id 索引。
+        boolean following = "following".equals(type);
+        long offset = (long) (page - 1) * size;
+        List<Long> pageIdList = following
+                ? followMapper.selectFollowingIds(userId, offset, size)
+                : followMapper.selectFollowerIds(userId, offset, size);
+        long total = following
+                ? followMapper.countFollowing(userId)
+                : followMapper.countFollowers(userId);
+        if (pageIdList == null || pageIdList.isEmpty()) {
             return PageVO.of(List.of(), total, page, size);
         }
 
-        List<Long> pageIdList = allIds.subList(from, to).stream()
-                .map(Long::parseLong).collect(Collectors.toList());
         Map<Long, UserVO> profileMap = batchGetProfiles(new HashSet<>(pageIdList));
-
         List<FollowVO> records = pageIdList.stream()
                 .map(id -> {
                     FollowVO vo = new FollowVO();
