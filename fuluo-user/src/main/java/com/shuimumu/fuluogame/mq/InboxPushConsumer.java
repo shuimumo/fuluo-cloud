@@ -10,6 +10,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Component;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -22,11 +23,12 @@ import java.util.Set;
 @Component
 public class InboxPushConsumer {
 
-    private static final DefaultRedisScript<Long> INBOX_PUSH_SCRIPT = new DefaultRedisScript<>();
+    /** 批量收件箱推送 Lua（P2 修复）：一次往返写全部活跃粉丝 */
+    private static final DefaultRedisScript<Long> INBOX_PUSH_BATCH_SCRIPT = new DefaultRedisScript<>();
 
     static {
-        INBOX_PUSH_SCRIPT.setLocation(new ClassPathResource("lua/inbox_push.lua"));
-        INBOX_PUSH_SCRIPT.setResultType(Long.class);
+        INBOX_PUSH_BATCH_SCRIPT.setLocation(new ClassPathResource("lua/inbox_push_batch.lua"));
+        INBOX_PUSH_BATCH_SCRIPT.setResultType(Long.class);
     }
 
     @Autowired
@@ -63,11 +65,13 @@ public class InboxPushConsumer {
 
             String postIdStr = postId.toString();
             String scoreStr = String.valueOf(createTime);
+            // P2 修复：批量收件箱推送，一次 Lua 往返写全部活跃粉丝（原逐粉丝一次 execute 为 N 次往返）
+            List<String> inboxKeys = new ArrayList<>();
             for (String fid : activeFollowers) {
-                stringRedisTemplate.execute(INBOX_PUSH_SCRIPT,
-                        List.of(UserRedisKeys.inbox(Long.parseLong(fid))),
-                        postIdStr, scoreStr);
+                inboxKeys.add(UserRedisKeys.inbox(Long.parseLong(fid)));
             }
+            stringRedisTemplate.execute(INBOX_PUSH_BATCH_SCRIPT, inboxKeys,
+                    postIdStr, scoreStr, String.valueOf(UserRedisKeys.INBOX_MAX));
             log.info("收件箱推送完成 postId={} authorId={} 活跃粉丝数={}/{}",
                     postId, authorId, activeFollowers.size(), followerCount);
         } catch (Exception e) {

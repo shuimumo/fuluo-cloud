@@ -45,4 +45,7 @@ public class UserRedisKeys {
     public static final long OUTBOX_MAX = 200;
     public static final long ACTIVE_WINDOW_DAYS = 7;
     public static final long ACTIVE_WINDOW_SEC = 7 * 86400;
+
+    /** 收件箱上限（每人保留最近 N 条），批量推送脚本裁剪用（P2 修复） */
+    public static final long INBOX_MAX = 500;
 }
