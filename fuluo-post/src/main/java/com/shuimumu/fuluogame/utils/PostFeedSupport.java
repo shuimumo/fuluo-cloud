@@ -51,9 +51,9 @@ public class PostFeedSupport {
             Long pid = postIds.get(i);
             String json = cachedJsons != null ? cachedJsons.get(i) : null;
             if (json != null && !json.isEmpty()) {
+                // P1 修复：去掉命中后的逐条 expire——既是一次 N+1 往返，也让热 key 被无限续期、永不自然过期。
+                // 缓存改为固定 TTL（写路径已设置），到期由 miss 路径重建。
                 resultMap.put(pid, JSONUtil.toBean(json, PostContentVO.class));
-                stringRedisTemplate.expire(SystemRedisKeys.cachePostContent(pid),
-                        PostRedisKeys.POST_CONTENT_CACHE_TTL, TimeUnit.MINUTES);
             } else {
                 missIds.add(pid);
             }

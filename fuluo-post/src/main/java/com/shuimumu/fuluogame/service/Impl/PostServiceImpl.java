@@ -170,8 +170,8 @@ public class PostServiceImpl implements PostService {
         if ("".equals(json)) return null;
         PostContentVO vo = null;
         if (json != null) {
+            // P1 修复：命中后不再逐次续期（避免 N+1 与热 key 永不过期），缓存固定 TTL，到期重建。
             vo = JSONUtil.toBean(json, PostContentVO.class);
-            stringRedisTemplate.expire(cacheKey, PostRedisKeys.POST_CONTENT_CACHE_TTL, TimeUnit.MINUTES);
         } else {
             String lockKey = "lock:" + cacheKey;
             vo = cacheClient.queryWithMutex(lockKey, cacheKey, PostContentVO.class, () -> {
