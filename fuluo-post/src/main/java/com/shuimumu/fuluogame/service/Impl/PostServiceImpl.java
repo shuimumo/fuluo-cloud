@@ -158,8 +158,24 @@ public class PostServiceImpl implements PostService {
             if (postIds == null) postIds = List.of();
         }
         List<PostContentVO> records = postFeedSupport.loadAndAssemble(postIds);
-        long total = postMapper.countPublished();
+        long total = getPublishedCount();
         return PageVO.of(records, total, page, size);
+    }
+
+    /**
+     * P2 修复：全局已发布帖子总数走 Redis 短缓存，避免最新流每请求 COUNT(*)。
+     * 总数允许 60s 延迟，缓存到期后重新 COUNT 回填。
+     */
+    private long getPublishedCount() {
+        String key = PostRedisKeys.countPublished();
+        String cached = stringRedisTemplate.opsForValue().get(key);
+        if (cached != null) {
+            try { return Long.parseLong(cached); } catch (NumberFormatException ignored) { }
+        }
+        long total = postMapper.countPublished();
+        stringRedisTemplate.opsForValue().set(key, String.valueOf(total),
+                PostRedisKeys.COUNT_CACHE_TTL_SECONDS, TimeUnit.SECONDS);
+        return total;
     }
 
     @Override

@@ -11,7 +11,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -39,6 +41,14 @@ import java.util.concurrent.TimeUnit;
 public class PostStatsSyncTask {
 
     private static final int BATCH_SIZE = 500;
+
+    /** 热度衰减 Lua（P2 修复）：一次往返完成衰减 + 裁剪，替代 reverseRange + N×(ZSCORE+ZADD) */
+    private static final DefaultRedisScript<Long> DECAY_HOT_SCRIPT = new DefaultRedisScript<>();
+
+    static {
+        DECAY_HOT_SCRIPT.setLocation(new ClassPathResource("lua/decay_hot.lua"));
+        DECAY_HOT_SCRIPT.setResultType(Long.class);
+    }
 
     private final ExecutorService shardExecutor = Executors.newFixedThreadPool(
             Math.max(2, PostRedisKeys.DIRTY_SHARD_COUNT),
@@ -103,14 +113,11 @@ public class PostStatsSyncTask {
     @Scheduled(cron = "0 0 4 * * ?")
     public void decayHotScores() {
         runExclusive("lock:decay:hot", 300, () -> {
-            Set<String> members = stringRedisTemplate.opsForZSet().reverseRange(PostRedisKeys.hotZset(), 0, -1);
-            if (members == null || members.isEmpty()) return;
-            for (String pid : members) {
-                Double score = stringRedisTemplate.opsForZSet().score(PostRedisKeys.hotZset(), pid);
-                if (score != null && score > 0.01) {
-                    stringRedisTemplate.opsForZSet().add(PostRedisKeys.hotZset(), pid, score * 0.75);
-                }
-            }
+            // P2 修复：衰减 + 裁剪合并为一次 Lua 往返，并裁剪到 HOT_ZSET_MAX 防止热榜无界膨胀
+            Long remain = stringRedisTemplate.execute(DECAY_HOT_SCRIPT,
+                    List.of(PostRedisKeys.hotZset()),
+                    "0.75", "0.01", String.valueOf(PostRedisKeys.HOT_ZSET_MAX));
+            log.info("热度衰减完成，hotZset 剩余成员数={}", remain);
         });
     }
 

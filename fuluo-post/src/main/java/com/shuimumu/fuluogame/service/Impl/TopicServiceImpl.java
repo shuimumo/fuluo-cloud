@@ -107,7 +107,23 @@ public class TopicServiceImpl implements TopicService {
             if (postIds == null) postIds = List.of();
         }
         List<PostContentVO> records = postFeedSupport.loadAndAssemble(postIds);
-        long total = postMapper.countPublishedByTopic(topicId);
+        long total = getTopicPublishedCount(topicId);
         return PageVO.of(records, total, page, size);
+    }
+
+    /**
+     * P2 修复：话题已发布帖子总数走 Redis 短缓存，避免话题最新流每请求 COUNT(*)。
+     * 总数允许 60s 延迟，缓存到期后重新 COUNT 回填。
+     */
+    private long getTopicPublishedCount(Long topicId) {
+        String key = PostRedisKeys.countPublishedByTopic(topicId);
+        String cached = stringRedisTemplate.opsForValue().get(key);
+        if (cached != null) {
+            try { return Long.parseLong(cached); } catch (NumberFormatException ignored) { }
+        }
+        long total = postMapper.countPublishedByTopic(topicId);
+        stringRedisTemplate.opsForValue().set(key, String.valueOf(total),
+                PostRedisKeys.COUNT_CACHE_TTL_SECONDS, TimeUnit.SECONDS);
+        return total;
     }
 }

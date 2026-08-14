@@ -62,12 +62,21 @@ public class PostRedisKeys {
     public static final long LATEST_ZSET_MAX = 10000;
     /** 话题最新流 ZSET 窗口上限 */
     public static final long TOPIC_LATEST_ZSET_MAX = 2000;
+    /** 热门流 ZSET 上限：衰减任务裁剪到该大小，防止热榜无界膨胀（P2 修复） */
+    public static final long HOT_ZSET_MAX = 5000;
 
     public static String topicPostsLatestZset(Long topicId) { return "topic:posts:latest:" + topicId; }
     public static String topicPostsHotZset(Long topicId)   { return "topic:posts:hot:" + topicId; }
     public static String postTopicIds(Long postId)          { return "post:topicIds:" + postId; }
 
     public static String topic(Long topicId)  { return "topic:" + topicId; }
+
+    /** 全局已发布帖子总数缓存 key（P2 修复：避免最新流每请求 COUNT(*)） */
+    public static String countPublished() { return "post:count:published"; }
+    /** 话题已发布帖子数缓存 key */
+    public static String countPublishedByTopic(Long topicId) { return "topic:count:published:" + topicId; }
+    /** 已发布帖子计数缓存 TTL（秒）：总数允许短暂延迟，避免每请求 COUNT(*) */
+    public static final long COUNT_CACHE_TTL_SECONDS = 60;
 
     /** 按话题 id 选择 topic dirty 分片（写路径） */
     public static String topicDirty(long topicId) {
