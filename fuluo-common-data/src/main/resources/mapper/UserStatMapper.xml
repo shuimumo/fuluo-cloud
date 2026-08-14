@@ -2,32 +2,27 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.shuimumu.fuluogame.mapper.UserStatMapper">
 
-    <update id="upsertBatch">
-        UPDATE user_stat SET
-            posts = CASE user_id
-                <foreach collection="list" item="item">
-                    WHEN #{item.userId} THEN #{item.posts}
-                </foreach>
-            END,
-            following = CASE user_id
-                <foreach collection="list" item="item">
-                    WHEN #{item.userId} THEN #{item.following}
-                </foreach>
-            END,
-            followers = CASE user_id
-                <foreach collection="list" item="item">
-                    WHEN #{item.userId} THEN #{item.followers}
-                </foreach>
-            END,
-            likes = CASE user_id
-                <foreach collection="list" item="item">
-                    WHEN #{item.userId} THEN #{item.likes}
-                </foreach>
-            END
-        WHERE user_id IN
-        <foreach collection="list" item="item" open="(" separator="," close=")">
-            #{item.userId}
+    <!--
+      P0 修复：真正的 upsert（INSERT ... ON DUPLICATE KEY UPDATE）。
+      旧实现是纯 UPDATE（CASE WHEN ... WHERE user_id IN ...），只能更新已存在的行。
+      而新用户注册只走 UserStatsRedisHelper.initZeroStats() 写 Redis，user_stat 表从未 INSERT，
+      导致新用户统计永远无法落库——一旦 Redis 的 user:stats 过期或清空，ensureUserStats 从 DB
+      读到 null 回填 0，用户 posts/following/followers/likes 计数被清零。
+      这里改为「插入或更新」二合一，新用户首次同步时补齐行。
+      说明：MySQL 8.0 中 VALUES(col) 已弃用但仍可用；如需消除弃用告警可改用行别名语法
+      INSERT ... VALUES (...) AS new ON DUPLICATE KEY UPDATE posts = new.posts。
+    -->
+    <insert id="upsertBatch">
+        INSERT INTO `user_stat` (user_id, posts, following, followers, likes)
+        VALUES
+        <foreach collection="list" item="item" separator=",">
+            (#{item.userId}, #{item.posts}, #{item.following}, #{item.followers}, #{item.likes})
         </foreach>
-    </update>
+        ON DUPLICATE KEY UPDATE
+            posts = VALUES(posts),
+            following = VALUES(following),
+            followers = VALUES(followers),
+            likes = VALUES(likes)
+    </insert>
 
 </mapper>
