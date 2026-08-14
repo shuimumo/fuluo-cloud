@@ -17,6 +17,7 @@ import com.shuimumu.fuluogame.mapper.BannerMapper;
 import com.shuimumu.fuluogame.mapper.CommentMapper;
 import com.shuimumu.fuluogame.mapper.PostMapper;
 import com.shuimumu.fuluogame.mapper.TopicMapper;
+import com.shuimumu.fuluogame.mq.ContentSyncPublisher;
 import com.shuimumu.fuluogame.service.AdminService;
 import com.shuimumu.fuluogame.vo.PageVO;
 import lombok.extern.slf4j.Slf4j;
@@ -39,6 +40,8 @@ public class AdminServiceImpl implements AdminService {
     @Autowired private StringRedisTemplate stringRedisTemplate;
     @Autowired private com.shuimumu.fuluogame.utils.LocalCache localCache;
     @Autowired private RabbitTemplate rabbitTemplate;
+    // P2 修复（去 Canal）：admin 直写 DB 后直接扇出，不再依赖 binlog->Canal
+    @Autowired private ContentSyncPublisher contentSyncPublisher;
 
     // ========== Banner ==========
     @Override
@@ -151,7 +154,9 @@ public class AdminServiceImpl implements AdminService {
         post.setModerationDesc(null);
         post.setModerationWords(null);
         postMapper.updateById(post);
-        // 缓存、ES 和收件箱扇出由 status 2->0 的 binlog 事件驱动。
+        // P2 修复（去 Canal）：审核通过直接扇出缓存/ES/收件箱
+        contentSyncPublisher.publishPostApproved(post.getId(), post.getTitle(),
+                post.getContent(), post.getUserId(), post.getCreateTime());
     }
 
     @Override
@@ -180,7 +185,8 @@ public class AdminServiceImpl implements AdminService {
         comment.setModerationDesc(null);
         comment.setModerationWords(null);
         commentMapper.updateById(comment);
-        // 缓存重建由 status 2->0 的 binlog 事件驱动。
+        // P2 修复（去 Canal）：审核通过直接扇出评论缓存+互动通知
+        contentSyncPublisher.publishCommentApproved(comment.getId(), comment.getUserId(), comment.getPostId());
     }
 
     @Override

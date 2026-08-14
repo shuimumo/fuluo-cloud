@@ -142,52 +142,6 @@ services:
       retries: 20
       start_period: 60s
 
-  canal-server:
-    image: canal/canal-server:v1.1.7
-    container_name: canal-server
-    restart: unless-stopped
-    ports:
-      - "${CANAL_PORT:-11111}:11111"
-    networks:
-      - fuluogame
-    environment:
-      DOCKER_DEPLOY_TYPE: VM
-      canal.serverMode: rabbitMQ
-      canal.auto.scan: "true"
-      canal.instance.master.address: mysql8:3306
-      canal.instance.dbUsername: root
-      canal.instance.dbPassword: ${MYSQL_ROOT_PASSWORD:-123456}
-      canal.instance.connectionCharset: UTF-8
-      canal.instance.filter.regex: "fuluogame\\.(post|comment)"
-      canal.mq.flatMessage: "true"
-      canal.mq.canalBatchSize: "50"
-      canal.mq.canalGetTimeout: "100"
-      canal.mq.topic: cdc.change
-      canal.mq.partition: "0"
-      rabbitmq.host: rabbitmq:5672
-      rabbitmq.virtual.host: /
-      rabbitmq.exchange: canal.cdc
-      rabbitmq.username: ${RABBIT_USER:-guest}
-      rabbitmq.password: ${RABBIT_PWD:-guest}
-      rabbitmq.queue: cdc.post.change
-      rabbitmq.routingKey: cdc.change
-      rabbitmq.deliveryMode: topic
-    volumes:
-      - canal-logs:/home/admin/canal-server/logs
-      - ./start-canal.sh:/opt/fuluo/start-canal.sh:ro
-    command: ["/bin/bash", "/opt/fuluo/start-canal.sh"]
-    depends_on:
-      mysql8:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "ps -ef | grep -q '[C]analLauncher' || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 6
-      start_period: 30s
-
   ollama:
     image: ollama/ollama:latest
     container_name: ollama
@@ -218,7 +172,6 @@ volumes:
   nacos-data:
   nacos-logs:
   elasticsearch-data:
-  canal-logs:
   ollama-data:
 
 

@@ -43,6 +43,10 @@ public class CommentModerationConsumer {
     @Autowired
     private RabbitTemplate rabbitTemplate;
 
+    // P2 修复（去 Canal）：审核通过后直接扇出评论缓存+互动通知，不再依赖 binlog->Canal
+    @Autowired
+    private ContentSyncPublisher contentSyncPublisher;
+
     @RabbitListener(queues = RabbitMQConfig.QUEUE_COMMENT_MODERATION,
             containerFactory = "commentBatchListenerContainerFactory")
     public void handleComment(List<CommentModerationMsg> messages) {
@@ -118,7 +122,20 @@ public class CommentModerationConsumer {
                 commentMapper.updateStatusBatch(toUpdate);
             }
 
-            // 4) 拒绝通知（best-effort：失败记日志即可，重投也会因 status 变更被跳过）
+            // 4) 审核通过扇出：评论缓存重建 + 作者互动通知（原由 Canal binlog 驱动，现改为直接发）
+            //    best-effort：失败仅记日志（重投会因 status!=2 被跳过），下游 sync.cache.comment / notification 各自队列重试。
+            try {
+                for (Comment comment : toUpdate) {
+                    if (comment.getStatus() == 0) {
+                        contentSyncPublisher.publishCommentApproved(comment.getId(),
+                                comment.getUserId(), comment.getPostId());
+                    }
+                }
+            } catch (Exception e) {
+                log.error("评论批量审核扇出发送失败（DB 已更新，扇出待补偿）", e);
+            }
+
+            // 5) 拒绝通知（best-effort：失败记日志即可，重投也会因 status 变更被跳过）
             try {
                 for (NotificationEvent event : notifications) {
                     rabbitTemplate.convertAndSend(RabbitMQConfig.NOTIFICATION_EXCHANGE,

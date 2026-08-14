@@ -4,7 +4,6 @@ import org.springframework.amqp.core.Binding;
 import org.springframework.amqp.core.BindingBuilder;
 import org.springframework.amqp.core.DirectExchange;
 import org.springframework.amqp.core.Queue;
-import org.springframework.amqp.core.TopicExchange;
 import org.springframework.amqp.support.converter.Jackson2JsonMessageConverter;
 import org.springframework.amqp.support.converter.MessageConverter;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -48,16 +47,9 @@ public class RabbitMQConfig {
     public static final String QUEUE_PERSISTENCE_COMMENT = "sync.persistence.comment";
     public static final String KEY_PERSISTENCE_COMMENT = "persistence.comment";
 
-    // ===== Canal CDC：独立 exchange，与 fuluo.sync 完全隔离。canal-server 直投到此 =====
-    public static final String CDC_EXCHANGE = "canal.cdc";
-    public static final String QUEUE_CDC = "cdc.post.change";
-    public static final String KEY_CDC = "cdc.change";
-
-    // 评论缓存重建（由 CanalCdcConsumer 扇出，comment 服务消费）
+    // 评论缓存重建（由评论审核消费者在 2->0 时直接扇出，comment 服务消费）
     public static final String QUEUE_CACHE_COMMENT = "sync.cache.comment";
     public static final String KEY_CACHE_COMMENT = "cache.comment";
-    // 评论 CDC（comment 服务独立消费）
-    public static final String QUEUE_CDC_COMMENT = "cdc.comment.change";
 
     // 非活跃用户重新活跃时，从关注者 user:posts 补拉帖子进 inbox
     public static final String QUEUE_BACKFILL = "sync.backfill";
@@ -82,10 +74,6 @@ public class RabbitMQConfig {
     @Bean
     public DirectExchange notificationExchange() { return new DirectExchange(NOTIFICATION_EXCHANGE); }
 
-    // Canal 直投目标：TopicExchange，routing key 与 instance.properties 的 canal.mq.topic 一致
-    @Bean
-    public TopicExchange cdcExchange() { return new TopicExchange(CDC_EXCHANGE); }
-
     // 死信交换机 + 死信队列（只挂不消费，供人工排查）
     @Bean
     public DirectExchange deadLetterExchange() { return new DirectExchange(DLX_EXCHANGE); }
@@ -95,11 +83,6 @@ public class RabbitMQConfig {
     public Binding deadLetterBinding() {
         return BindingBuilder.bind(deadLetterQueue()).to(deadLetterExchange()).with(DLX_KEY);
     }
-
-    @Bean
-    public Queue cdcQueue() { return new Queue(QUEUE_CDC, true, false, false, DLX_ARGS); }
-    @Bean
-    public Binding cdcBinding() { return BindingBuilder.bind(cdcQueue()).to(cdcExchange()).with(KEY_CDC); }
 
     @Bean
     public Queue followQueue() { return new Queue(QUEUE_FOLLOW, true, false, false, DLX_ARGS); }
@@ -163,11 +146,6 @@ public class RabbitMQConfig {
     public Queue cacheCommentQueue() { return new Queue(QUEUE_CACHE_COMMENT, true, false, false, DLX_ARGS); }
     @Bean
     public Binding cacheCommentBinding() { return BindingBuilder.bind(cacheCommentQueue()).to(syncExchange()).with(KEY_CACHE_COMMENT); }
-
-    @Bean
-    public Queue cdcCommentQueue() { return new Queue(QUEUE_CDC_COMMENT, true, false, false, DLX_ARGS); }
-    @Bean
-    public Binding cdcCommentBinding() { return BindingBuilder.bind(cdcCommentQueue()).to(cdcExchange()).with(KEY_CDC); }
 
     @Bean
     public MessageConverter jacksonConverter() { return new Jackson2JsonMessageConverter(); }

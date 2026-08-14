@@ -21,7 +21,7 @@ import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 /**
- * 评论缓存重建消费者（由评论 CDC 在审核 2→0 时投递到
+ * 评论缓存重建消费者（由评论审核消费者在 2→0 时直接投递到
  * {@link RabbitMQConfig#QUEUE_CACHE_COMMENT}）。
  */
 @Slf4j

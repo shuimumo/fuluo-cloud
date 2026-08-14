@@ -60,6 +60,10 @@ public class PostModerationConsumer {
     @Autowired
     private UserStatsRedisHelper userStatsRedisHelper;
 
+    // P2 修复（去 Canal）：审核通过后直接扇出缓存/ES/收件箱，不再依赖 binlog->Canal
+    @Autowired
+    private ContentSyncPublisher contentSyncPublisher;
+
     @RabbitListener(queues = RabbitMQConfig.QUEUE_MODERATION,
             containerFactory = "postBatchListenerContainerFactory")
     public void handlePost(List<PostModerationMsg> messages) {
@@ -184,7 +188,19 @@ public class PostModerationConsumer {
                 log.error("帖子批量审核 Redis 统计更新失败（DB 已更新，统计待补偿）", e);
             }
 
-            // 5) 拒绝通知（best-effort，失败记日志即可，重投也会因 status 变更被跳过）
+            // 5) 审核通过扇出：缓存重建 + ES 索引 + 收件箱（原由 Canal binlog 驱动，现改为审核消费者直接发）
+            //    best-effort：convertAndSend 失败仅记日志（重投会因 status!=2 被跳过，不抛异常以免放大丢失面），
+            //    下游 sync.cache / es.post.index / sync.inbox 各自独立队列 + DLX 重试兜底。
+            try {
+                for (Post post : passPosts) {
+                    contentSyncPublisher.publishPostApproved(post.getId(), post.getTitle(),
+                            post.getContent(), post.getUserId(), post.getCreateTime());
+                }
+            } catch (Exception e) {
+                log.error("帖子批量审核扇出发送失败（DB 已更新，扇出待补偿）", e);
+            }
+
+            // 6) 拒绝通知（best-effort，失败记日志即可，重投也会因 status 变更被跳过）
             try {
                 for (NotificationEvent event : notifications) {
                     rabbitTemplate.convertAndSend(RabbitMQConfig.NOTIFICATION_EXCHANGE,

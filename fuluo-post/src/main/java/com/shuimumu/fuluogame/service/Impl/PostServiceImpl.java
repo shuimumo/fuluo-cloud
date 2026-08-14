@@ -13,6 +13,7 @@ import com.shuimumu.fuluogame.entity.Post;
 
 import com.shuimumu.fuluogame.interceptor.UserContext;
 import com.shuimumu.fuluogame.mapper.PostMapper;
+import com.shuimumu.fuluogame.mq.ContentSyncPublisher;
 
 import com.shuimumu.fuluogame.service.PostService;
 import com.shuimumu.fuluogame.client.UserProfileFetcher;
@@ -103,6 +104,10 @@ public class PostServiceImpl implements PostService {
 
     @Autowired
     private RabbitTemplate rabbitTemplate;
+
+    // P2 修复（去 Canal）：删除帖子直接发 ES 删除，不再依赖 binlog->Canal
+    @Autowired
+    private ContentSyncPublisher contentSyncPublisher;
 
 
 
@@ -282,7 +287,8 @@ public class PostServiceImpl implements PostService {
             stringRedisTemplate.opsForHash().increment(UserRedisKeys.stats(post.getUserId()), "posts", -1);
             stringRedisTemplate.opsForSet().add(UserRedisKeys.statsDirty(post.getUserId()), post.getUserId().toString());
         }
-        // ES 删除由 status -> 1 的 binlog 事件驱动。
+        // P2 修复（去 Canal）：ES 删除改为直接发消息，不再依赖 binlog->Canal
+        contentSyncPublisher.publishPostDeleted(postId);
     }
 
     // ========== 点赞 / 取消点赞 ==========
