@@ -37,6 +37,11 @@ spring:
     publisher-returns: true
     template:
       mandatory: true
+    listener:
+      simple:
+        # P1 修复：毒消息治理。消费端重试耗尽后不再无限 requeue，改由队列挂载的 DLX 死信（见 RabbitMQConfig），
+        # 运维监控 fuluo.dlx.queue 深度即可发现毒消息。
+        default-requeue-rejected: false
   elasticsearch:
     uris: http://127.0.0.1:9200
 
