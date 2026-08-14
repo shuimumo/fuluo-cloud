@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.shuimumu.fuluogame.mapper.PostTopicMapper">
+
+    <!--
+      P1 修复：批量插入帖子-话题关联。
+      原实现逐条 postTopicMapper.insert，是 LOADTEST 报告中"post_topic 逐帖 insert"的已知剩余瓶颈；
+      这里改为一次批量 INSERT，ON DUPLICATE KEY UPDATE topic_id=topic_id 为幂等占位（配合 uk_post_topic 唯一键），
+      保证 MQ 重试重复消费时不产生脏数据。
+    -->
+    <insert id="insertBatch">
+        INSERT INTO `post_topic` (post_id, topic_id)
+        VALUES
+        <foreach collection="list" item="pt" separator=",">
+            (#{pt.postId}, #{pt.topicId})
+        </foreach>
+        ON DUPLICATE KEY UPDATE topic_id = topic_id
+    </insert>
+
+</mapper>

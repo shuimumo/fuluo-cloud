@@ -82,9 +82,8 @@ public class PostPersistenceConsumer {
                     stringRedisTemplate.opsForZSet().add(PostRedisKeys.userPostsZset(post.getUserId()),
                             post.getId().toString(), zsetScore);
                 }
-                for (PostPersistMsg msg : newMsgsById.values()) {
-                    insertPostTopics(msg);
-                }
+                // P1 修复：整批帖子的话题关联一次性批量插入，取代逐帖逐话题的单条 INSERT
+                insertPostTopicsBatch(newMsgsById);
             }
 
             // 2) 编辑更新逐个处理
@@ -156,16 +155,29 @@ public class PostPersistenceConsumer {
         }
     }
 
-    private void insertPostTopics(PostPersistMsg msg) {
-        if (msg.getTopicIds() == null || msg.getTopicIds().isEmpty()) {
+    /**
+     * P1 修复：批量插入帖子-话题关联。
+     * 原实现每条 topic 一次单条 INSERT（新帖 N 个话题即 N 次 DB 往返，是落库链路剩余瓶颈），
+     * 这里先收集整批 PostTopic，再调用 insertBatch 一次批量写入；配合 uk_post_topic 的
+     * ON DUPLICATE KEY 幂等，MQ 重试重复消费时不会产生脏数据。
+     */
+    private void insertPostTopicsBatch(Map<Long, PostPersistMsg> newMsgsById) {
+        List<PostTopic> all = new ArrayList<>();
+        for (PostPersistMsg msg : newMsgsById.values()) {
+            if (msg.getTopicIds() == null || msg.getTopicIds().isEmpty()) {
+                continue;
+            }
+            for (String tid : msg.getTopicIds().split(",")) {
+                PostTopic pt = new PostTopic();
+                pt.setPostId(msg.getPostId());
+                pt.setTopicId(Long.valueOf(tid.trim()));
+                all.add(pt);
+            }
+        }
+        if (all.isEmpty()) {
             return;
         }
-        for (String tid : msg.getTopicIds().split(",")) {
-            PostTopic pt = new PostTopic();
-            pt.setPostId(msg.getPostId());
-            pt.setTopicId(Long.valueOf(tid.trim()));
-            postTopicMapper.insert(pt);
-        }
+        postTopicMapper.insertBatch(all);
     }
 
     private void handleUpdate(PostPersistMsg msg) {
