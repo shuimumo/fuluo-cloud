@@ -19,6 +19,7 @@
     <description>福洛游戏微服务聚合工程</description>
 
     <modules>
+        <module>fuluo-common-model</module>
         <module>fuluo-common</module>
         <module>fuluo-common-data</module>
         <module>fuluo-api</module>
@@ -76,6 +77,11 @@
             </dependency>
 
             <!-- 内部模块 -->
+            <dependency>
+                <groupId>com.shuimumu</groupId>
+                <artifactId>fuluo-common-model</artifactId>
+                <version>${fuluo.version}</version>
+            </dependency>
             <dependency>
                 <groupId>com.shuimumu</groupId>
                 <artifactId>fuluo-common</artifactId>

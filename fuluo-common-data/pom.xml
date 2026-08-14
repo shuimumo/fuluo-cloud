@@ -17,6 +17,11 @@
             <groupId>com.shuimumu</groupId>
             <artifactId>fuluo-common</artifactId>
         </dependency>
+        <!-- P2 修复：PostAssembler 等数据组装引用 vo，依赖纯模型模块 -->
+        <dependency>
+            <groupId>com.shuimumu</groupId>
+            <artifactId>fuluo-common-model</artifactId>
+        </dependency>
         <dependency>
             <groupId>com.baomidou</groupId>
             <artifactId>mybatis-plus-spring-boot3-starter</artifactId>

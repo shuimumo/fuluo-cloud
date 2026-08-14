@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>com.shuimumu</groupId>
+        <artifactId>fuluogame-cloud</artifactId>
+        <version>1.0.0</version>
+    </parent>
+    <artifactId>fuluo-common-model</artifactId>
+    <name>fuluo-common-model</name>
+    <description>纯数据模型：VO + DTO，无框架依赖，供各服务与 Feign 契约共用（P2 拆分）</description>
+
+    <dependencies>
+        <!-- 仅 lombok，保持纯数据契约：不引入 web/redis/mq/aliyun 等重型依赖 -->
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional>
+        </dependency>
+    </dependencies>
+</project>

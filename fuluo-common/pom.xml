@@ -13,6 +13,11 @@
     <description>共享内核：Result/异常/工具/常量/MQ契约/鉴权上下文</description>
 
     <dependencies>
+        <!-- P2 修复：vo/dto 下沉到 fuluo-common-model，本模块（GlobalExceptionHandler/鉴权过滤器等）依赖模型契约 -->
+        <dependency>
+            <groupId>com.shuimumu</groupId>
+            <artifactId>fuluo-common-model</artifactId>
+        </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
