@@ -27,6 +27,7 @@ import com.shuimumu.fuluogame.vo.PageVO;
 import com.shuimumu.fuluogame.vo.PostContentVO;
 import com.shuimumu.fuluogame.vo.UserVO;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.amqp.rabbit.connection.CorrelationData;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.ClassPathResource;
@@ -120,7 +121,9 @@ public class PostServiceImpl implements PostService {
                 postDTO.getTopicIds() != null && !postDTO.getTopicIds().isEmpty()
                         ? postDTO.getTopicIds().stream().map(String::valueOf)
                             .collect(Collectors.joining(",")) : null);
-        rabbitTemplate.convertAndSend(RabbitMQConfig.EXCHANGE, RabbitMQConfig.KEY_PERSISTENCE_POST, msg);
+        // P1 修复：携带 CorrelationData，便于 RabbitReliabilityConfig 的 Confirm 回调定位失败消息
+        rabbitTemplate.convertAndSend(RabbitMQConfig.EXCHANGE, RabbitMQConfig.KEY_PERSISTENCE_POST, msg,
+                new CorrelationData("post:" + postId));
     }
 
     @Override
@@ -220,7 +223,9 @@ public class PostServiceImpl implements PostService {
                 postDTO.getTitle(), postDTO.getContent(),
                 postDTO.getImages() != null ? JSONUtil.toJsonStr(postDTO.getImages()) : null,
                 null);
-        rabbitTemplate.convertAndSend(RabbitMQConfig.EXCHANGE, RabbitMQConfig.KEY_PERSISTENCE_POST, msg);
+        // P1 修复：携带 CorrelationData，便于 RabbitReliabilityConfig 的 Confirm 回调定位失败消息
+        rabbitTemplate.convertAndSend(RabbitMQConfig.EXCHANGE, RabbitMQConfig.KEY_PERSISTENCE_POST, msg,
+                new CorrelationData("post:" + postId));
     }
 
     @Override

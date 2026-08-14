@@ -31,6 +31,12 @@ spring:
     username: ${RABBIT_USER:guest}
     password: ${RABBIT_PWD:guest}
     virtual-host: /
+    # P1 修复：发布端可靠性。correlated 确认 + mandatory 退回，
+    # 由 RabbitReliabilityConfig 注册 Confirm/Returns 回调记录失败，消除"路由失败却返回成功"的静默丢消息。
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    template:
+      mandatory: true
   elasticsearch:
     uris: http://127.0.0.1:9200
 
