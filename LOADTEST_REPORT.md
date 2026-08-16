@@ -254,7 +254,7 @@ docker exec rabbitmq rabbitmqctl list_bindings
 
 - 发评论/点赞/关注写接口吞吐正常（幂等去重，点赞/关注同一用户重复操作只首次真实写库：likes 表 3 行、follow 表 2 行）；
 - 评论审核链路（批量 200/并发 4，修复后）：压测 10680 条评论全部落库 status 2→0，`sync.comment.moderation` 压测结束即时排空；
-- **问题：评论列表 p50=1.47s、仅 33.5 RPS**——`fillCommentLikesCount`（逐条 HGET ×20）+ `fillCommentLikedStatus`（逐条 SISMEMBER ×20）未 pipeline 化，40 次串行 Redis 往返 + miss 评论互斥锁回填。对比帖子列表已做 pipeline 化（548 RPS/30ms）。**为 P1 待优化项**。
+- **P1 优化（已实测）：评论列表 N+1 Redis**——原 p50=1.47s、仅 33.5 RPS，根因 `fillCommentLikesCount`（逐条 HGET ×20）+ `fillCommentLikedStatus`（逐条 SISMEMBER ×20）未 pipeline 化，40 次串行 Redis 往返 + miss 评论互斥锁回填。已与帖子侧对齐改为 `executePipelined` 一次往返，**实测 RPS 33.5 → 972（29x）、p50 1470ms → 45ms、p99 2146ms → 92ms、0 错误**。
 
 #### 一致性核对
 

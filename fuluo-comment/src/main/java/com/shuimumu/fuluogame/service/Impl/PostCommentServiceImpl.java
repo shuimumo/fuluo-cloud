@@ -18,6 +18,7 @@ import com.shuimumu.fuluogame.mapper.CommentMapper;
 import com.shuimumu.fuluogame.mapper.PostMapper;
 import com.shuimumu.fuluogame.service.PostCommentService;
 import com.shuimumu.fuluogame.utils.CacheClient;
+import com.shuimumu.fuluogame.utils.RedisUtils;
 import com.shuimumu.fuluogame.utils.UserStatsRedisHelper;
 import com.shuimumu.fuluogame.utils.RedisHashCounter;
 
@@ -31,9 +32,11 @@ import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
 
+import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
@@ -362,24 +365,61 @@ return true;
         return null;
     }
 
+    /**
+     * P1 优化：批量填充评论点赞数。
+     * 原实现每条评论一次 HGET(comment:counts:{id} likes)，读一页（20 条）即 20 次 Redis 往返；
+     * 这里用 executePipelined 把整页 HGET 合并为一次往返（与帖子侧 PostAssembler.fillCounts 对齐）。
+     */
     private void fillCommentLikesCount(List<CommentVO> records) {
-        for (CommentVO vo : records) {
-            Object likes = stringRedisTemplate.opsForHash()
-                    .get(PostRedisKeys.commentCounts(vo.getId()), "likes");
+        if (records == null || records.isEmpty()) return;
+        List<Object> results = stringRedisTemplate.executePipelined(
+                (RedisCallback<Object>) connection -> {
+                    for (CommentVO vo : records) {
+                        byte[] key = PostRedisKeys.commentCounts(vo.getId()).getBytes(StandardCharsets.UTF_8);
+                        connection.hashCommands().hGet(key, "likes".getBytes(StandardCharsets.UTF_8));
+                    }
+                    return null;
+                });
+        for (int i = 0; i < records.size() && i < results.size(); i++) {
+            CommentVO vo = records.get(i);
+            Object likes = results.get(i);
             if (likes != null) {
-                vo.setLikes(Integer.parseInt(likes.toString()));
+                vo.setLikes((int) RedisUtils.toLong(bytesToStr(likes)));
             }
         }
     }
 
+    /**
+     * P1 优化：批量填充当前用户评论点赞状态。
+     * 原实现每条评论一次 SISMEMBER(comment:likes:{id})，20 条即 20 次往返；
+     * 这里用 executePipelined 合并为一次往返（与帖子侧 PostAssembler.fillStatus 对齐）。
+     */
     private void fillCommentLikedStatus(List<CommentVO> records) {
+        if (records == null || records.isEmpty()) return;
         Long currentUserId;
         try { currentUserId = UserContext.getUser().getId(); } catch (Exception ignored) { return; }
+        if (currentUserId == null) return;
         String uidStr = currentUserId.toString();
-        for (CommentVO vo : records) {
-            vo.setLiked(Boolean.TRUE.equals(
-                    stringRedisTemplate.opsForSet().isMember(PostRedisKeys.commentLikes(vo.getId()), uidStr)));
+        List<Object> results = stringRedisTemplate.executePipelined(
+                (RedisCallback<Object>) connection -> {
+                    for (CommentVO vo : records) {
+                        connection.setCommands().sIsMember(
+                                PostRedisKeys.commentLikes(vo.getId()).getBytes(StandardCharsets.UTF_8),
+                                uidStr.getBytes(StandardCharsets.UTF_8));
+                    }
+                    return null;
+                });
+        for (int i = 0; i < records.size() && i < results.size(); i++) {
+            CommentVO vo = records.get(i);
+            vo.setLiked(Boolean.TRUE.equals(results.get(i)));
         }
+    }
+
+    /** pipeline 返回的 byte[] 兜底转 String，与帖子侧 PostAssembler 保持一致。 */
+    private static String bytesToStr(Object o) {
+        if (o == null) return null;
+        if (o instanceof byte[] b) return new String(b, StandardCharsets.UTF_8);
+        return o.toString();
     }
 
     private CommentVO commentToVO(Comment c, Long postAuthorId) {
