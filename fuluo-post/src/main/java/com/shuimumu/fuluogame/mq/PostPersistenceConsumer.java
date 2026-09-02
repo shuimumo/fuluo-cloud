@@ -30,7 +30,7 @@ import java.util.Set;
 
 /**
  * 帖子落库消费者（批量）。
- * 使用独立批量监听容器（postBatchListenerContainerFactory），一次接收一批消息，
+ * 使用独立批量监听容器（postPersistenceListenerContainerFactory），一次接收一批消息，
  * 新帖通过 insertBatch（ON DUPLICATE KEY 幂等）批量写库，提升写库吞吐。
  */
 @Slf4j
@@ -53,7 +53,7 @@ public class PostPersistenceConsumer {
     private StringRedisTemplate stringRedisTemplate;
 
     @RabbitListener(queues = RabbitMQConfig.QUEUE_PERSISTENCE_POST,
-            containerFactory = "postBatchListenerContainerFactory")
+            containerFactory = "postPersistenceListenerContainerFactory")
     public void handlePostPersist(List<PostPersistMsg> messages) {
         if (messages == null || messages.isEmpty()) {
             return;

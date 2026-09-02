@@ -65,7 +65,7 @@ public class PostModerationConsumer {
     private ContentSyncPublisher contentSyncPublisher;
 
     @RabbitListener(queues = RabbitMQConfig.QUEUE_MODERATION,
-            containerFactory = "postBatchListenerContainerFactory")
+            containerFactory = "postModerationListenerContainerFactory")
     public void handlePost(List<PostModerationMsg> messages) {
         if (messages == null || messages.isEmpty()) {
             return;

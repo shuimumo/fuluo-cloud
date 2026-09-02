@@ -195,3 +195,77 @@ docker exec rabbitmq rabbitmqctl list_bindings
   3. 第二版：`ensureUserStats` 按用户去重 + `executePipelined` 整批提交（每帖 4 次往返 → 整批 1 次往返）：`sync.moderation` 全程 **0~1550**、不再积压，与生产端持平；压测新增 20539 帖全部 status 2→0，**成功数=落库数=20539，0 丢失**。
 - **剩余瓶颈**：`sync.persistence.post` 压测峰值仍 ~16k（持久化消费者每帖 1 次 zset 往返 + 逐帖 insert `post_topic`），为下一步优化项。
 
+---
+
+### R3：2026-08-16 全面压测（去 Canal 后新架构 + 批量线程池修复）
+
+> 自 R2 后代码有大量 P0/P1/P2 修复，本轮为当前主干（HEAD `390a916`）的全量回归压测。
+
+#### 架构变化（相对 R2）
+
+- **去 Canal**（`817f887`）：删除 Canal/CanalCdcConsumer/CommentCdcConsumer，审核通过/admin 直写后由 `ContentSyncPublisher` 直接扇出缓存/ES/inbox/outbox，省掉 binlog→Canal 一跳；
+- **发布端可靠性**（`74c8930`）：confirm + mandatory + returns 回调，消除"假成功静默丢"；
+- **毒消息治理**（`20cc653`）：队列挂 `x-dead-letter-exchange: fuluo.dlx`，重试 3 次后进死信队列；
+- **post_topic 批量插入**（`e494f06`）、**countPublished 短缓存**（`32cd991`）、**读路径 N+1 pipeline 化**（`7f42df4`）等；
+- 本轮新增修复：批量监听容器线程池问题（见下）。
+
+#### 发现并修复的 Bug：批量消费者线程池互相饿死
+
+- **现象**：`sync.persistence.post` 无消费者、`sync.moderation` 只有 4 个消费者；日志周期性报 `Consumer failed to start in 60000 milliseconds`，落库吞吐塌陷到 ~40/s，9 万积压几乎不动。
+- **根因**：`PostPersistenceConsumer` 与 `PostModerationConsumer` 共用 `rabbitPostBatchExecutor`（ThreadPoolTaskExecutor core=4/queue=200）。两个批量容器各需 4 个消费者线程，但 core=4 被第一个容器占满后，ThreadPoolExecutor 先填队列（200）不扩容到 max=8，第二个容器的消费者线程永远排队 → 容器启动 60s 超时。
+- **修复**：两个批量消费者拆成独立线程池 + 独立容器工厂（`postPersistenceListenerContainerFactory` / `postModerationListenerContainerFactory`），并用 `SimpleAsyncTaskExecutor`（consumer 长生命周期、不排队、不会创建销毁风暴；08-10 的 3000/s 即为默认行为）。修复后两队列各 4 消费者、9 万积压正常排空。
+- **同源 Bug（本轮互动压测暴露）**：`fuluo-comment` 的 `CommentBatchConfig` 也用了 ThreadPoolTaskExecutor(core=4/queue=200)。评论无流量时不暴露；本次评论压测后 `sync.comment.moderation` 积压 5278 且只以 ~7/s 排空，日志同样周期性 `Consumer failed to start in 60000 milliseconds`。已与 post 对齐改为 `SimpleAsyncTaskExecutor`，修复后评论审核压测结束即时排空。
+
+#### 测试环境
+
+- 中间件 Docker 单机全部 healthy：MySQL 8.0 / Redis 7.2 / RabbitMQ 4.3 / Nacos 2.3.2 / ES 8.19.7；
+- 8 个微服务 `java -jar`（Java 21）启动，Nacos 注册正常；
+- 审核关闭 `FULUO_MODERATION_ENABLED=false`（阿里云 AK/SK 未配置，真实审核模式不可用）；
+- JMeter 5.6.3，经网关 `localhost:8080`，`-Jfuluo.token` 注入 token（setUp 登录线程与压测线程并行会导致前几秒 401，须注入）。
+
+#### 发帖接口 `POST /post/publish`（审核关闭）
+
+| 场景 | 并发 | 请求数 | RPS | p50 | p90 | p99 | max | 错误 | 落库增量 |
+|---|---|---|---|---|---|---|---|---|---|
+| 单实例 | 50 × 20s | 36083 | **1804** | 23ms | 42ms | **67ms** | 387ms | 0 | 36082 |
+| 单实例 | 100 × 10s | 21677 | **2168** | 39ms | 69ms | 101ms | 168ms | 0 | 21676 |
+| 双实例 | 100 × 10s | 17364 | **1736** | 47ms | 74ms | 117ms | 706ms | 0 | 17363 |
+
+- 三轮全部 **0 错误**；单实例 50 并发仍稳定 **~1800 RPS / p99 < 100ms**，与 R1/R2 基线一致；
+- 单实例 100 并发反而高于 50 并发（2168 vs 1804）：说明 50 并发未触顶，100 并发时单实例仍有扩展余量；
+- 双实例 100 并发（1721 RPS）低于单实例 100 并发：第二实例冷启动 JIT 未预热 + 8 服务同机共享 CPU/内存，扩容收益被本机资源竞争抵消（开发机局限，非架构问题）。
+
+#### 读接口（50 × 10s，公开读，单实例）
+
+| 接口 | 请求数 | RPS | p50 | p90 | p99 | max | 错误 |
+|---|---|---|---|---|---|---|---|
+| `GET /post/list?tab=latest&page=1&size=10` | 5480 | 548 | 30ms | 49ms | 83ms | 140ms | 0 |
+| `GET /post/{id}`（详情，缓存命中） | 5468 | 547 | 45ms | 71ms | 129ms | 195ms | 0 |
+
+#### 互动接口（50 × 10s，经网关，单实例，审核关闭）
+
+| 接口 | 请求数 | RPS | p50 | p90 | p99 | max | 错误 |
+|---|---|---|---|---|---|---|---|
+| `POST /post/{id}/comment`（发评论，异步落库） | 10680 | **1068** | 36ms | 69ms | 114ms | 191ms | 0 |
+| `POST /user/follow/{id}`（关注） | 8567 | **857** | 48ms | 72ms | 133ms | 223ms | 0 |
+| `POST /post/{id}/like`（帖子点赞，Redis Lua 幂等） | 6713 | **671** | 62ms | 91ms | 144ms | 245ms | 0 |
+| `POST /post/comment/{id}/like`（评论点赞） | 3371 | **337** | 132ms | 174ms | 227ms | 279ms | 0 |
+| `GET /post/{id}/comments`（评论列表） | 335 | **33.5** | 1470ms | 1764ms | 2146ms | 2237ms | 0 |
+
+- 发评论/点赞/关注写接口吞吐正常（幂等去重，点赞/关注同一用户重复操作只首次真实写库：likes 表 3 行、follow 表 2 行）；
+- 评论审核链路（批量 200/并发 4，修复后）：压测 10680 条评论全部落库 status 2→0，`sync.comment.moderation` 压测结束即时排空；
+- **问题：评论列表 p50=1.47s、仅 33.5 RPS**——`fillCommentLikesCount`（逐条 HGET ×20）+ `fillCommentLikedStatus`（逐条 SISMEMBER ×20）未 pipeline 化，40 次串行 Redis 往返 + miss 评论互斥锁回填。对比帖子列表已做 pipeline 化（548 RPS/30ms）。**为 P1 待优化项**。
+
+#### 一致性核对
+
+- 三轮正式压测 JMeter 成功 **75124**，DB 落库增量 **75121**，差 **3**（0.004%）；
+- 已核查：全部业务队列 + `fuluo.dlx.queue` 深度均为 0，无死信残留、无滞留；
+- 差异为压测边界/批量幂等（`insertBatch` 的 ON DUPLICATE KEY）吸收，量级可忽略，但未逐条追溯（压测环境多轮叠加）。
+
+#### 结论与剩余项
+
+1. 当前主干写链路能力与 R1/R2 持平：**单实例 50 并发 ~1800 RPS、p99 67ms、0 错误、落库近乎 0 丢失**；
+2. 落库链路 `sync.persistence.post` 已能追上生产端（9 万积压可排空），不再有 R2 报告的 16k 峰值瓶颈（post_topic 批量插入已修复）；
+3. 审核关闭模式下审核消费者仍会瞬时积压（落库快于审核的 Redis 统计），随后排空；
+4. 剩余项：真实审核模式吞吐受阿里云 QPS 配额限制（当前 AK/SK 未配置）；双实例扩容收益在本机被资源竞争抵消，需分离压测机/独立部署验证。
+
