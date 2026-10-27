@@ -25,7 +25,7 @@ spring:
   ai:
     deepseek:
       base-url: https://api.deepseek.com
-      api-key: ***REMOVED-SECRET***
+      api-key: ${DEEPSEEK_API_KEY}
       chat:
         options:
           model: deepseek-v4-flash
