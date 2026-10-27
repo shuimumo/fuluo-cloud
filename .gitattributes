@@ -1,0 +1,3 @@
+# 钩子脚本必须保持 LF，否则 Windows 检出后 sh 执行会因 CR 报错
+.githooks/** text eol=lf
+*.sh text eol=lf
