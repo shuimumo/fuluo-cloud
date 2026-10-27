@@ -1,0 +1,30 @@
+#!/bin/sh
+# 校验提交信息：<type>(<scope>): <描述>
+# 规范见 docs/commit-convention.md；紧急情况可 git commit --no-verify 跳过。
+msg_file="$1"
+subject=$(head -n 1 "$msg_file")
+
+# 合并/回滚提交放行
+case "$subject" in
+  Merge*|Revert*) exit 0 ;;
+esac
+
+pattern='^(feat|fix|perf|refactor|docs|style|test|build|ci|chore)(\([a-z0-9,/-]+\))?!?: .{2,}'
+
+if printf '%s' "$subject" | grep -Eq "$pattern"; then
+  exit 0
+fi
+
+cat >&2 <<'EOF'
+✗ 提交信息不符合规范，已拒绝。
+
+  格式：<type>(<scope>): <描述>
+  type：feat | fix | perf | refactor | docs | style | test | build | ci | chore
+  scope：可选，小写，如 post / comment / mq / cache / user / notification / deploy
+
+  示例：feat(post): 新增收藏接口
+        fix(mq): 毒消息进入死信后不再自动重投
+
+  说明见 docs/commit-convention.md；紧急情况可用 git commit --no-verify 跳过。
+EOF
+exit 1

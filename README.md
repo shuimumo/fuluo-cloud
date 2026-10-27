@@ -40,3 +40,4 @@ MySQL 8、Redis（Redisson）、RabbitMQ、Elasticsearch 8.x、Nacos（见 `naco
 
 - 路线图（V2.0 前）：[`docs/roadmap.md`](docs/roadmap.md)
 - 压测报告：`LOADTEST_REPORT.md`
+- 提交规范：[`docs/commit-convention.md`](docs/commit-convention.md)（`<type>(<scope>): <描述>`，已启用 commit-msg 校验）
